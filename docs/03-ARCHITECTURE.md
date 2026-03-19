@@ -1,91 +1,64 @@
-# Architecture
+# ARCHITECTURE
 
-## Repository purpose
+## High-level design
 
-This repo is a standalone bridge layer between WandGx and Comfy providers.
+Use an adapter architecture.
 
-It should eventually expose one clean client abstraction over:
+### Core layers
 
-- ComfyUI Local
-- ComfyUI Cloud
+1. Public types layer
+2. Bridge client / factory
+3. Provider router
+4. Local adapter
+5. Cloud adapter
+6. Shared error normalization and result mapping
 
-## Conceptual architecture
+## Suggested modules
 
-WandGx UI / API
--> WandGx integration layer
--> Comfy Bridge
--> Local adapter OR Cloud adapter
--> Comfy provider
+- `types/`
+- `errors/`
+- `core/`
+- `adapters/local/`
+- `adapters/cloud/`
+- `routing/`
+- `utils/`
 
-## Main architecture pieces
+## Core public interfaces
 
-### 1. Provider abstraction
+The package should define interfaces similar to:
 
-One common client interface that WandGx can call without caring whether the request goes to local or cloud.
+- provider config
+- routing mode
+- health result
+- job submission input
+- job status
+- job result
+- upload result
+- event payloads
+- normalized error
 
-### 2. Local adapter
+## Routing model
 
-Handles:
+The router decides:
+- which provider to try first
+- whether fallback is allowed
+- whether a retry should occur
+- what provider was actually used
+- what fallback reason should be recorded
 
-- local base URL
-- local websocket behavior
-- local uploads
-- local history retrieval
-- local queue handling
+## GUI support requirement
 
-### 3. Cloud adapter
+The public types must make a GUI switcher easy to build.
+That means the API must support:
+- selected mode
+- preferred local instance ID
+- fallback enabled/disabled
+- retry enabled/disabled
+- timeout config
+- runtime provider used
+- runtime fallback reason
 
-Handles:
+## Clean separation
 
-- cloud base URL
-- cloud API key auth
-- cloud websocket / polling behavior
-- cloud uploads
-- cloud history retrieval
-- cloud-specific failure cases
-
-### 4. Routing layer
-
-Responsible for:
-
-- local-only mode
-- cloud-only mode
-- auto mode
-- local preferred behavior
-- fallback decisions
-- health preflight logic
-- retry-on-connection-failure logic
-
-### 5. Error normalization
-
-Every provider-specific error should be converted into one normalized internal error shape.
-
-### 6. Status / metadata reporting
-
-Every generation attempt should report:
-
-- requested provider mode
-- actual provider used
-- whether fallback happened
-- why fallback happened
-- status
-- progress
-- output references
-
-## v1 architecture rule
-
-Keep v1 simple.
-
-Prefer:
-
-- clear transport layer
-- clear routing layer
-- clear error layer
-
-Avoid giant abstractions early.
-
-## Important future architecture note
-
-The bridge should not own WandGx project style profiles, asset manifests, business rules, billing rules, or game integration logic.
-
-Those remain WandGx responsibilities.
+This repo is transport and routing focused.
+It should not contain WandGx product logic.

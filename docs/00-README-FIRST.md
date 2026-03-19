@@ -1,27 +1,51 @@
-# WandGx Comfy Bridge Docs Pack
+# README FIRST
 
-This repo starts as docs only.
+This repo is a fresh standalone package whose goal is to become the cleanest possible bridge between ComfyUI Local and ComfyUI Cloud.
 
-Nothing here assumes an existing `src/` folder, package scaffold, or implementation code yet.
+These docs replace the earlier intent set.
 
-This pack is meant to live inside a fresh repo under a `docs/` folder and guide the first build of a standalone Comfy bridge package for:
+## Core direction
 
-- ComfyUI Local
-- ComfyUI Cloud
-- Auto mode with local-first fallback to cloud
-- GUI switcher support for WandGx
+Build a standalone TypeScript package that:
+- supports ComfyUI Local
+- supports ComfyUI Cloud
+- supports provider mode `local`, `cloud`, and `auto`
+- supports local-preferred with cloud fallback
+- exposes GUI-friendly types so apps like WandGx can build a provider switcher on top
+- keeps business logic out of the transport layer
 
-Recommended doc order:
+## Important architecture rule
 
-1. `01-INTENT-COMFY-BRIDGE.md`
-2. `02-INTENT-README.md`
-3. `03-ARCHITECTURE.md`
-4. `04-UI-SWITCHER-SPEC.md`
-5. `05-ROUTING-AND-FALLBACK.md`
-6. `06-README-SPEC.md`
-7. `07-MVP-BUILD-PLAN.md`
-8. `08-TEST-PLAN.md`
-9. `09-IMPLEMENTATION-CHECKLIST.md`
+Do not treat the external `comfyui-sdk` repo as the final product.
+It should be treated as either:
+- inspiration, or
+- an internal dependency for the local adapter only
 
-Goal:
-Build the bridge first, document it clearly, then integrate it into WandGx.
+Our package must own:
+- provider abstraction
+- cloud adapter
+- auto routing
+- fallback logic
+- normalized errors
+- public types for app/UI integration
+- README and developer guidance
+
+## What not to do in MVP
+
+Do not overbuild:
+- no billing system
+- no WandGx-specific asset registry in this repo
+- no database requirement
+- no giant plugin system
+- no unnecessary CLI unless required by docs later
+
+## What success looks like
+
+A clean, usable MVP package with:
+- local adapter
+- cloud adapter
+- bridge client/factory
+- provider routing and fallback
+- health checks
+- normalized results and errors
+- README that teaches humans and agents how to use it
