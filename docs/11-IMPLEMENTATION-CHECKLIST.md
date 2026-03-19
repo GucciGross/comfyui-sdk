@@ -1,15 +1,16 @@
 # IMPLEMENTATION CHECKLIST
 
-- [ ] Read all docs in `/docs`
-- [ ] Create package skeleton
-- [ ] Define public types
-- [ ] Define normalized error types
+- [ ] Read all docs before coding
+- [ ] Define public types first
+- [ ] Define normalized errors
+- [ ] Define provider adapter interface
 - [ ] Build local adapter
 - [ ] Build cloud adapter
-- [ ] Build bridge client factory
-- [ ] Implement `local`, `cloud`, `auto` routing
+- [ ] Build bridge client/router
+- [ ] Implement `local`, `cloud`, `auto`
 - [ ] Implement local-preferred cloud fallback
-- [ ] Return routing metadata on job responses
+- [ ] Attach provider usage metadata
 - [ ] Write README.md
 - [ ] Add examples
-- [ ] Add focused tests
+- [ ] Add MVP tests
+- [ ] Confirm external comfy sdk is not leaked through public exports

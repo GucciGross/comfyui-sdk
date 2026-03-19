@@ -1,52 +1,24 @@
-# INTENT: CREATE README.md
+# INTENT: README
 
-## Mission
+A real `README.md` is required.
 
-Create a README.md that teaches both humans and agents how to understand, integrate, and use this package.
+It must teach both humans and coding agents:
+- what this package is
+- why it exists
+- what problem it solves
+- how to install it
+- how to configure local mode
+- how to configure cloud mode
+- how to configure auto mode
+- how fallback works
+- how to wire it into a UI switcher
+- what metadata comes back
+- what is included in MVP
+- what is intentionally deferred
 
-## README must include
+## README requirement from latest review
 
-### 1. What this package is
-Explain that it is a bridge package for ComfyUI Local and ComfyUI Cloud.
-
-### 2. Why it exists
-Explain that apps should not need to manage provider quirks directly.
-
-### 3. MVP scope
-Clearly explain what is included in MVP and what is not.
-
-### 4. Installation
-Document install steps.
-
-### 5. Configuration
-Show examples for:
-- local mode
-- cloud mode
-- auto mode
-
-### 6. Fallback behavior
-Explain exactly how local-preferred with cloud fallback works.
-
-### 7. Public API examples
-Show how to:
-- create the client
-- run a health check
-- submit a workflow
-- inspect status
-- read routing metadata
-
-### 8. GUI integration guidance
-Explain how an app like WandGx can wire this package into a provider switcher UI.
-Mention fields like:
-- mode
-- preferred local instance
-- fallback to cloud
-- retry on failure
-- timeout
-
-### 9. Agent guidance
-Include a short section for AI coding agents about how they should integrate this package without bypassing its public API.
-
-## Rule
-
-README is a required deliverable, not a nice-to-have.
+The README should clearly explain that:
+- local adapter internals may optionally use `comfy-addons/comfyui-sdk`
+- the package public API is still our own abstraction
+- consumers should not depend on the external sdk API directly

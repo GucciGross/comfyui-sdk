@@ -1,64 +1,66 @@
 # ARCHITECTURE
 
-## High-level design
+## High-level structure
 
-Use an adapter architecture.
+Recommended package layout:
 
-### Core layers
+- `src/core/`
+  - shared types
+  - shared errors
+  - bridge client
+  - router / fallback logic
 
-1. Public types layer
-2. Bridge client / factory
-3. Provider router
-4. Local adapter
-5. Cloud adapter
-6. Shared error normalization and result mapping
+- `src/adapters/local/`
+  - local adapter
+  - optional internal wrapper for external comfyui sdk
+  - local health checks
+  - local upload + submit + status + outputs
 
-## Suggested modules
+- `src/adapters/cloud/`
+  - cloud adapter
+  - cloud auth handling
+  - cloud health checks
+  - cloud upload + submit + status + outputs
 
-- `types/`
-- `errors/`
-- `core/`
-- `adapters/local/`
-- `adapters/cloud/`
-- `routing/`
-- `utils/`
+- `src/index.ts`
+  - public exports only
 
-## Core public interfaces
+## Core interfaces
 
-The package should define interfaces similar to:
+The repo should define its own interfaces, for example:
 
-- provider config
-- routing mode
-- health result
-- job submission input
-- job status
-- job result
-- upload result
-- event payloads
-- normalized error
+- `ComfyBridgeConfig`
+- `ComfyRoutingMode`
+- `LocalInstanceConfig`
+- `SubmitWorkflowInput`
+- `GenerationResult`
+- `GenerationStatus`
+- `ProviderUsageMetadata`
+- `IComfyProviderAdapter`
 
-## Routing model
+## Adapter pattern
 
-The router decides:
-- which provider to try first
-- whether fallback is allowed
-- whether a retry should occur
-- what provider was actually used
-- what fallback reason should be recorded
+Each adapter should implement the same contract.
 
-## GUI support requirement
+Suggested responsibilities:
+- `healthCheck()`
+- `submitWorkflow()`
+- `getJobStatus()`
+- `uploadImage()`
+- `watchJob()` or equivalent progress subscription
+- `resolveOutputUrls()`
 
-The public types must make a GUI switcher easy to build.
-That means the API must support:
-- selected mode
-- preferred local instance ID
-- fallback enabled/disabled
-- retry enabled/disabled
-- timeout config
-- runtime provider used
-- runtime fallback reason
+## Router behavior
 
-## Clean separation
+The bridge client should:
+- accept top-level config
+- select provider based on mode
+- perform preflight checks
+- trigger fallback when appropriate
+- normalize responses
+- attach provider usage metadata
 
-This repo is transport and routing focused.
-It should not contain WandGx product logic.
+## Important boundary
+
+Public API should be app-friendly.
+Provider-specific quirks should stay inside adapters.

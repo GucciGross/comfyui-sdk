@@ -1,17 +1,17 @@
 # TEST PLAN
 
-## Minimum coverage targets
+## Required MVP coverage
 
-Test these behaviors if practical:
-- local mode routes to local
-- cloud mode routes to cloud
-- auto mode prefers local when healthy
-- auto mode falls back to cloud when local preflight fails
-- auto mode falls back to cloud on retryable local connection failure
-- workflow errors do not trigger fallback unless policy allows it
-- normalized errors return correct provider/code/retryable flags
-- routing metadata is populated correctly
+1. local mode routes to local
+2. cloud mode routes to cloud
+3. auto mode uses local when local is healthy
+4. auto mode falls back to cloud when local health check fails
+5. auto mode returns correct provider usage metadata
+6. local mode errors correctly when no local instance is available
+7. normalized error shapes remain consistent
+8. preferred local instance selection works
 
-## Documentation check
-
-Also verify README examples match actual API names.
+## Nice-to-have
+- retry behavior tests
+- timeout behavior tests
+- adapter contract tests

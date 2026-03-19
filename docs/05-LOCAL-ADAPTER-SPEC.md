@@ -1,33 +1,42 @@
 # LOCAL ADAPTER SPEC
 
-## Goal
-
-Provide a clean local ComfyUI implementation behind the bridge interfaces.
+The local adapter handles self-hosted ComfyUI instances.
 
 ## Responsibilities
 
-The local adapter should support:
-- health check
-- submit workflow
-- get job status/history
-- upload image/file input where supported
-- create preview/view URLs when useful
-- progress/event watching abstraction
+- choose a local instance
+- perform local health checks
+- submit workflows to the selected instance
+- upload files/images
+- retrieve job status/history
+- watch progress if available
+- normalize outputs
 
-## Implementation note
+## Important note from latest review
 
-You may use raw API calls or use `comfyui-sdk` internally.
-If using `comfyui-sdk`, wrap it so the rest of this repo only sees our own interfaces.
+The external `comfy-addons/comfyui-sdk` already appears strong for local concerns:
+- queue/status/history
+- upload helpers
+- websocket reconnect
+- polling fallback
+- multi-instance pooling
 
-## Required behavior
+This makes it acceptable to:
+- use it internally
+- wrap it with our own local adapter interface
 
-- local health check should happen quickly
-- failures should normalize into shared error types
-- timeouts should be treated as retryable connection failures when appropriate
-- websocket failure should not break the package if polling fallback is possible
+But the adapter must still expose our own types.
 
-## Nice-to-have
+## Required local behavior
 
-If practical in MVP:
-- basic support for named local instances
-- support for choosing a preferred local instance
+- supports multiple local instances
+- supports preferred instance id
+- supports health check timeout
+- reports the local instance used
+- returns normalized errors when no local instance is usable
+
+## Recommended internal shape
+
+- `LocalComfyAdapter`
+- `LocalInstanceResolver`
+- optional `ComfySdkLocalClient` internal wrapper

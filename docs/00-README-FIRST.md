@@ -1,51 +1,53 @@
 # README FIRST
 
-This repo is a fresh standalone package whose goal is to become the cleanest possible bridge between ComfyUI Local and ComfyUI Cloud.
+This repo exists to build a standalone TypeScript bridge for ComfyUI that supports:
+- ComfyUI Local
+- ComfyUI Cloud
+- provider mode: `local`, `cloud`, `auto`
+- local-preferred cloud fallback
+- GUI-friendly public types for future app integration
 
-These docs replace the earlier intent set.
+## Why this doc set was updated
 
-## Core direction
+We reviewed the public `comfy-addons/comfyui-sdk` repository again.
 
-Build a standalone TypeScript package that:
-- supports ComfyUI Local
-- supports ComfyUI Cloud
-- supports provider mode `local`, `cloud`, and `auto`
-- supports local-preferred with cloud fallback
-- exposes GUI-friendly types so apps like WandGx can build a provider switcher on top
-- keeps business logic out of the transport layer
+What looks good there:
+- `ComfyApi` already handles many local-server concerns like queueing, uploads, history, status, websocket reconnects, and polling fallback.
+- `ComfyPool` already handles multi-instance local routing.
+- `PromptBuilder` and `CallWrapper` are useful patterns for workflow mutation and execution handling.
 
-## Important architecture rule
+What this means for this repo:
+- do **not** reinvent every low-level local ComfyUI call from scratch if the external SDK can help
+- do **not** let the external SDK define this repo's public API
+- do **not** couple this repo tightly to the external SDK
+- do build a WandGx-friendly and GUI-friendly abstraction on top
 
-Do not treat the external `comfyui-sdk` repo as the final product.
-It should be treated as either:
-- inspiration, or
-- an internal dependency for the local adapter only
+## Non-negotiable architecture rule
 
-Our package must own:
-- provider abstraction
-- cloud adapter
-- auto routing
-- fallback logic
-- normalized errors
-- public types for app/UI integration
-- README and developer guidance
+This repo's public API must belong to this repo.
 
-## What not to do in MVP
+The external `comfy-addons/comfyui-sdk` project may be used as:
+- inspiration
+- optional internal dependency inside the local adapter
+- reference for websocket/polling/pool behavior
 
-Do not overbuild:
-- no billing system
-- no WandGx-specific asset registry in this repo
-- no database requirement
-- no giant plugin system
-- no unnecessary CLI unless required by docs later
+It may **not** be used as:
+- the public API of this repo
+- the cloud adapter
+- the source of provider routing behavior
+- the source of GUI-facing config types
+- the source of fallback metadata
 
-## What success looks like
+## MVP outcome
 
-A clean, usable MVP package with:
-- local adapter
-- cloud adapter
-- bridge client/factory
-- provider routing and fallback
-- health checks
-- normalized results and errors
-- README that teaches humans and agents how to use it
+At MVP completion, this repo should expose a clean package that lets another app do things like:
+
+- choose provider mode: `local`, `cloud`, `auto`
+- select a preferred local instance
+- enable cloud fallback
+- configure retry behavior and timeout
+- submit a workflow
+- upload inputs
+- observe progress
+- know which provider actually handled the job
+- know whether fallback happened and why

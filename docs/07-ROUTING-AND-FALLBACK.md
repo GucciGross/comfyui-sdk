@@ -1,41 +1,43 @@
 # ROUTING AND FALLBACK
 
-## Required routing modes
+## Modes
 
 ### local
-Use local only.
+- always use local
+- if local is unavailable, fail with normalized local-unavailable error
+- do not silently switch unless a documented explicit option says otherwise
 
 ### cloud
-Use cloud only.
+- always use cloud
 
 ### auto
-Try local first, then fall back to cloud when allowed.
+- try local first
+- if local health check fails and fallback is enabled, use cloud
+- if local submit fails for connection/access reasons and retry/fallback policy allows it, use cloud
+- return provider usage metadata
 
-## Auto mode policy
+## Required metadata
 
-In MVP, implement this policy:
+Every generation result or status must be able to indicate:
+- requested mode
+- actual provider used
+- whether fallback happened
+- why fallback happened
+- which local instance was selected when relevant
 
-1. Run a local preflight health check
-2. If local is healthy, attempt local submit
-3. If local is unhealthy and cloud fallback is enabled, use cloud
-4. If local submit fails because of timeout, refused connection, unreachable host, websocket unavailable without workable fallback, or equivalent access failure, retry once on cloud if enabled
-5. Record the actual provider used and fallback reason
+## Preflight rule
 
-## Metadata requirement
+In `auto` mode:
+- do a local health check before first submission attempt
+- do not wait for a long failure if a timeout is configured
 
-Every job result/status must record:
-- providerRequested
-- providerUsed
-- fallbackTriggered
-- fallbackReason
+## Failure normalization examples
 
-## Failure handling rule
+- `LOCAL_UNAVAILABLE`
+- `CLOUD_UNAVAILABLE`
+- `FALLBACK_DISABLED`
+- `SUBMIT_FAILED`
+- `UPLOAD_FAILED`
+- `JOB_NOT_FOUND`
 
-Only trigger fallback for connection/access/provider-availability failures, not for ordinary workflow/content errors unless explicitly chosen later.
-
-## Default product stance
-
-Recommended default for apps:
-- mode = `auto`
-- fallbackToCloud = true
-- retryOnConnectionFailure = true
+Use typed errors or a strongly typed error shape.

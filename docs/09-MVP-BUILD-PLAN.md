@@ -1,29 +1,32 @@
 # MVP BUILD PLAN
 
-## Phase 1
-Set up the package skeleton.
+## Phase 1: foundation
+- package setup
+- tsconfig
+- build config
+- public exports
+- shared types
+- shared errors
 
-## Phase 2
-Define public types and normalized errors.
+## Phase 2: adapters
+- implement local adapter contract
+- implement cloud adapter contract
+- keep local internals isolated from public exports
 
-## Phase 3
-Build local adapter.
+## Phase 3: routing
+- implement bridge client
+- implement mode selection
+- implement local-preferred fallback
+- attach provider usage metadata
 
-## Phase 4
-Build cloud adapter.
+## Phase 4: README and examples
+- write README
+- add basic usage examples for local, cloud, auto
 
-## Phase 5
-Build router / bridge client with `local`, `cloud`, `auto`.
+## Phase 5: tests
+- routing tests
+- fallback tests
+- error normalization tests
 
-## Phase 6
-Implement fallback logic and routing metadata.
-
-## Phase 7
-Write README and examples.
-
-## Phase 8
-Add targeted tests for routing and error normalization.
-
-## Build priority rule
-
-A smaller working MVP is better than a huge half-finished system.
+## MVP restraint
+Do not derail into advanced billing, analytics, or product-specific WandGx storage systems.

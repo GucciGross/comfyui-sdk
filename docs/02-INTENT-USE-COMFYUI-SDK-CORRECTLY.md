@@ -1,34 +1,64 @@
-# INTENT: USE comfyui-sdk CORRECTLY
+# INTENT: USE EXTERNAL COMFYUI SDK CORRECTLY
 
-## Decision
+We reviewed `comfy-addons/comfyui-sdk` and the repo is useful, but it is not the final product we need.
 
-The external `comfyui-sdk` project is a useful building block, especially for local ComfyUI behavior, but it is not the final architecture for this repo.
+## What to take from it
 
-## Approved usage
+Useful ideas and/or optional internals for the local adapter:
+- local server request handling
+- websocket lifecycle handling
+- polling fallback
+- queue/history/status helpers
+- multi-instance pool logic
+- workflow builder patterns
+- upload helpers
 
-Allowed:
-- use it as inspiration
-- use it as an optional internal dependency for the local adapter
-- borrow architectural ideas for websocket handling, queue watching, prompt submission, and pooling
+## What not to take from it
 
-Not allowed:
-- exposing its raw API directly as this package's public contract
-- letting it define cloud support
-- letting it define our routing model
-- letting it leak into GUI-facing app types
+Do not let the external SDK define:
+- this repo's public API
+- cloud provider support
+- provider switcher semantics
+- app-facing routing metadata
+- fallback policy
+- GUI-facing config objects
 
-## Why
+## Required implementation stance
 
-This package must own:
-- the provider abstraction
-- the local/cloud switcher model
-- auto routing
-- fallback reasons
-- provider used metadata
-- normalized return types
-- normalized error types
+Build our own public API first.
 
-## Design consequence
+Then choose one of these internal strategies for the local adapter:
 
-Create our own interfaces first.
-Then implement local using either raw HTTP/WebSocket or `comfyui-sdk` internally where it helps.
+### Strategy A: thin wrapper over external sdk
+Pros:
+- faster MVP
+- less low-level local code
+- proven websocket/polling patterns
+
+Cons:
+- external changes can affect internals
+- some behavior may need adaptation
+
+### Strategy B: selective code inspiration
+Pros:
+- tighter control
+- fewer external runtime dependencies
+
+Cons:
+- more work
+
+## Recommendation
+
+For MVP:
+- allow use of the external SDK inside the local adapter
+- keep the dependency isolated behind an internal abstraction
+- do not leak external classes like `ComfyApi`, `ComfyPool`, `PromptBuilder`, or `CallWrapper` into the package public surface
+
+## Public API rule
+
+Consumers of this repo should never need to know whether the local adapter uses:
+- raw fetch/websocket code
+- `comfy-addons/comfyui-sdk`
+- a future replacement
+
+That choice must remain internal.

@@ -1,73 +1,68 @@
 # PUBLIC TYPES SPEC
 
-## Required types
+## Required public types
 
-Create clean exported types for at least:
+```ts
+export type ComfyRoutingMode = "local" | "cloud" | "auto";
 
-### Provider mode
-- `ComfyProviderMode = 'local' | 'cloud' | 'auto'`
+export interface LocalInstanceConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  enabled?: boolean;
+}
 
-### Bridge config
-Should support:
-- mode
-- local config
-- cloud config
-- fallbackToCloud
-- retryOnConnectionFailure
-- localTimeoutMs
+export interface ComfyBridgeConfig {
+  mode: ComfyRoutingMode;
+  preferredLocalInstanceId?: string;
+  fallbackToCloud: boolean;
+  retryOnConnectionFailure: boolean;
+  localTimeoutMs: number;
+  localInstances?: LocalInstanceConfig[];
+  cloud?: {
+    baseUrl?: string;
+    apiKey?: string;
+  };
+}
 
-### Local provider config
-Should support:
-- baseUrl
-- optional auth
-- optional instanceId
-- optional label/name
+export interface ProviderUsageMetadata {
+  providerRequested: ComfyRoutingMode;
+  providerUsed: "local" | "cloud";
+  fallbackTriggered: boolean;
+  fallbackReason?: string;
+  localInstanceId?: string;
+}
 
-### Cloud provider config
-Should support:
-- baseUrl
-- apiKey
-- optional clientId
+export interface SubmitWorkflowInput {
+  workflow: Record<string, unknown>;
+  files?: Array<{
+    name: string;
+    data: Uint8Array | ArrayBuffer | Blob;
+    contentType?: string;
+  }>;
+  metadata?: Record<string, unknown>;
+}
 
-### Routing result metadata
-Should include:
-- providerRequested
-- providerUsed
-- fallbackTriggered
-- fallbackReason
+export interface GenerationResult {
+  promptId: string;
+  outputs?: unknown;
+  usage: ProviderUsageMetadata;
+}
 
-### Workflow submission input
-Should include:
-- workflow object
-- optional files/uploads
-- optional metadata
-- optional abort signal if practical
+export interface GenerationStatus {
+  promptId: string;
+  state: "queued" | "running" | "completed" | "failed";
+  progress?: number;
+  outputs?: unknown;
+  error?: string;
+  usage?: ProviderUsageMetadata;
+}
+```
 
-### Job status
-Should include:
-- promptId or jobId
-- providerUsed
-- state (`queued`, `running`, `completed`, `failed`)
-- progress if available
-- outputs when available
-- error when failed
-- routing metadata
+## Public typing requirements
 
-### Health result
-Should include:
-- provider
-- ok boolean
-- latency if available
-- details message if needed
-
-### Normalized error
-Must be typed and include:
-- code
-- message
-- provider
-- retryable boolean
-- raw cause if appropriate
-
-## Rule
-
-Do not make UI apps parse raw provider-specific responses.
+- GUI-ready
+- app-friendly
+- no dependency on external SDK classes
+- no leaking provider-specific internals
