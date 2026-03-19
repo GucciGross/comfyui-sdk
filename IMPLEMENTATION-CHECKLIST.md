@@ -2,15 +2,14 @@
 
 ## Docs first
 
-- [x] Create `README.md`
-- [x] Keep README aligned with docs pack
-- [x] Define provider mode contract
-- [x] Define fallback contract
-- [x] Define normalized error contract
+- [x] Read all docs before coding
+- [x] Define public types first (doc-specified: ComfyBridgeConfig, ProviderUsageMetadata, etc.)
+- [x] Define normalized errors
+- [x] Define provider adapter interface
 
 ## Local support
 
-- [x] Local config shape defined
+- [x] Local config shape defined (LocalInstanceConfig)
 - [x] Local health check implemented
 - [x] Local submit implemented
 - [x] Local progress handling implemented
@@ -27,20 +26,40 @@
 ## Auto support
 
 - [x] Local-first preflight implemented
-- [x] Cloud fallback implemented
-- [x] Retry-on-connection-failure implemented
-- [x] Provider-used reporting implemented
+- [x] Cloud fallback implemented (fallbackToCloud flag)
+- [x] Retry-on-connection-failure implemented (retryOnConnectionFailure flag)
+- [x] Provider-used reporting implemented (ProviderUsageMetadata)
 - [x] Fallback-reason reporting implemented
 
-## WandGx integration support
+## GUI-friendly types (doc-specified)
 
-- [x] UI switcher payload documented
-- [x] API payload documented
-- [x] Runtime metadata documented
-- [x] Integration example added to README
+- [x] mode: ComfyRoutingMode
+- [x] preferredLocalInstanceId: string
+- [x] fallbackToCloud: boolean
+- [x] retryOnConnectionFailure: boolean
+- [x] localTimeoutMs: number
+- [x] providerRequested: in ProviderUsageMetadata
+- [x] providerUsed: in ProviderUsageMetadata
+- [x] fallbackTriggered: in ProviderUsageMetadata
+- [x] fallbackReason: in ProviderUsageMetadata
 
 ## Release readiness
 
-- [x] Test plan executed
-- [x] Docs updated
+- [x] Test plan executed (38 tests passing)
+- [x] Docs updated (README.md)
 - [x] No repo-specific WandGx business logic leaked into bridge core
+- [x] Build passes (CJS, ESM, types)
+- [x] Type checking passes
+
+## Public API exports
+
+- [x] ComfyBridge (class)
+- [x] createComfyBridge (factory)
+- [x] ComfyRoutingMode (type)
+- [x] ComfyBridgeConfig (type)
+- [x] LocalInstanceConfig (type)
+- [x] ProviderUsageMetadata (type)
+- [x] SubmitWorkflowInput (type)
+- [x] GenerationResult (type)
+- [x] GenerationStatus (type)
+- [x] WorkflowFileInput (type)

@@ -1,6 +1,6 @@
 # @wandgx/comfy-bridge
 
-A standalone bridge layer for connecting to both ComfyUI Local and ComfyUI Cloud with automatic fallback support.
+A standalone TypeScript bridge layer for connecting to both ComfyUI Local and ComfyUI Cloud with automatic fallback support.
 
 ## Overview
 
@@ -38,8 +38,8 @@ yarn add @wandgx/comfy-bridge
 When `auto` mode is selected:
 
 1. Try preferred local instance first
-2. If local fails preflight (health check), switch to cloud (if fallback enabled)
-3. If local fails with connection-level failure during submission, retry on cloud (if enabled)
+2. If local fails preflight (health check), switch to cloud (if `fallbackToCloud` is true)
+3. If local fails with connection-level failure during submission, retry on cloud (if `retryOnConnectionFailure` is true)
 4. Record the fallback reason for observability
 
 Fallback is a **routing policy**, not a hidden behavior. The caller always receives metadata showing when and why fallback occurred.
@@ -52,72 +52,115 @@ import { createComfyBridge } from '@wandgx/comfy-bridge';
 // Create bridge with auto mode
 const bridge = createComfyBridge({
   mode: 'auto',
-  local: {
-    baseUrl: 'http://127.0.0.1:8188',
-  },
+  fallbackToCloud: true,
+  retryOnConnectionFailure: true,
+  localTimeoutMs: 60000,
+  localInstances: [
+    { id: 'local-1', name: 'Main', baseUrl: 'http://127.0.0.1:8188' },
+  ],
   cloud: {
     apiKey: 'your-api-key',
   },
-  routing: {
-    enableFallback: true,
-    retryOnConnectionFailure: true,
-  },
 });
 
-// Submit a workflow
-const result = await bridge.submit({
+// Submit a workflow using doc-specified format
+const result = await bridge.submitWorkflow({
   workflow: {
     // Your ComfyUI workflow JSON
     '3': {
       class_type: 'KSampler',
       inputs: { /* ... */ },
     },
-    // ...
   },
 });
 
-console.log(`Job ${result.jobId} submitted`);
-console.log(`Provider used: ${result.providerUsed}`);
-console.log(`Fallback triggered: ${result.fallbackTriggered}`);
+console.log(`Job ${result.promptId} submitted`);
+console.log(`Provider used: ${result.usage.providerUsed}`);
+console.log(`Fallback triggered: ${result.usage.fallbackTriggered}`);
+```
+
+## Configuration
+
+### ComfyBridgeConfig
+
+```typescript
+interface ComfyBridgeConfig {
+  mode: ComfyRoutingMode;
+  preferredLocalInstanceId?: string;
+  fallbackToCloud: boolean;
+  retryOnConnectionFailure: boolean;
+  localTimeoutMs: number;
+  localInstances?: LocalInstanceConfig[];
+  cloud?: {
+    baseUrl?: string;
+    apiKey?: string;
+  };
+}
+
+interface LocalInstanceConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  enabled?: boolean;
+}
+```
+
+### Example Configuration
+
+```typescript
+const bridge = createComfyBridge({
+  mode: 'auto',
+  fallbackToCloud: true,
+  retryOnConnectionFailure: true,
+  localTimeoutMs: 30000,
+  preferredLocalInstanceId: 'gpu-1',
+  localInstances: [
+    { id: 'gpu-1', name: 'RTX 4090', baseUrl: 'http://192.168.1.100:8188' },
+    { id: 'gpu-2', name: 'RTX 3080', baseUrl: 'http://192.168.1.101:8188' },
+  ],
+  cloud: {
+    baseUrl: 'https://api.comfyicloud.com',
+    apiKey: process.env.COMFY_CLOUD_API_KEY,
+  },
+});
 ```
 
 ## API Reference
 
-### Configuration
+### Main Methods
+
+#### `submitWorkflow(input, options?)`
+
+Submit a workflow using the doc-specified input format.
 
 ```typescript
-interface BridgeConfig {
-  mode: 'local' | 'cloud' | 'auto';
-  local?: LocalConfig;
-  cloud?: CloudConfig;
-  routing?: RoutingPolicy;
-}
+const result = await bridge.submitWorkflow({
+  workflow: myWorkflow,
+  files: [
+    {
+      name: 'input.png',
+      data: imageBlob,
+      contentType: 'image/png',
+    },
+  ],
+  metadata: { userId: 'user-123' },
+}, {
+  mode: 'auto',
+  onProgress: (progress) => {
+    console.log(`Progress: ${progress.progress}%`);
+  },
+});
 
-interface LocalConfig {
-  baseUrl: string;        // e.g., 'http://127.0.0.1:8188'
-  timeout?: number;       // Default: 60000ms
-  wsPath?: string;        // Default: '/ws'
-}
-
-interface CloudConfig {
-  baseUrl?: string;       // Default: 'https://api.comfyicloud.com'
-  apiKey: string;
-  timeout?: number;       // Default: 120000ms
-}
-
-interface RoutingPolicy {
-  enableFallback?: boolean;           // Default: true
-  retryOnConnectionFailure?: boolean; // Default: true
-  maxRetries?: number;                // Default: 1
-  connectionTimeout?: number;         // Default: 5000ms
-}
+// Result includes provider usage metadata
+console.log(result.usage.providerUsed);
+console.log(result.usage.fallbackTriggered);
+console.log(result.usage.fallbackReason);
 ```
-
-### Main Methods
 
 #### `submit(workflow, options?)`
 
-Submit a workflow for execution.
+Submit a workflow using the extended format (with images/files arrays).
 
 ```typescript
 const result = await bridge.submit({
@@ -129,11 +172,6 @@ const result = await bridge.submit({
       subfolder: 'myimages',
     },
   ],
-}, {
-  mode: 'auto',
-  onProgress: (progress) => {
-    console.log(`Progress: ${progress.progress}%`);
-  },
 });
 ```
 
@@ -164,7 +202,16 @@ const healthResults = await bridge.healthCheck();
 // [{ healthy: true, provider: 'local', responseTime: 42 }, ...]
 ```
 
-#### `getResult(jobId, provider)`
+#### `getStatus(promptId, provider, instanceId?)`
+
+Get the status of a generation job.
+
+```typescript
+const status = await bridge.getStatus('job-123', 'local');
+// { promptId, state: 'running', progress: 50, outputs: undefined, error: undefined, usage: {...} }
+```
+
+#### `getResult(jobId, provider, instanceId?)`
 
 Get the result of a submitted job.
 
@@ -172,7 +219,7 @@ Get the result of a submitted job.
 const result = await bridge.getResult('job-123', 'local');
 ```
 
-#### `watchProgress(jobId, provider, onProgress)`
+#### `watchProgress(jobId, provider, onProgress, instanceId?)`
 
 Watch progress of an existing job.
 
@@ -182,7 +229,7 @@ await bridge.watchProgress('job-123', 'local', (progress) => {
 });
 ```
 
-#### `cancel(jobId, provider)`
+#### `cancel(jobId, provider, instanceId?)`
 
 Cancel a running job.
 
@@ -190,16 +237,61 @@ Cancel a running job.
 await bridge.cancel('job-123', 'local');
 ```
 
-### Job Result
+## Types
+
+### ProviderUsageMetadata
+
+Returned with every generation result to indicate routing decisions:
+
+```typescript
+interface ProviderUsageMetadata {
+  providerRequested: ComfyRoutingMode;  // 'local' | 'cloud' | 'auto'
+  providerUsed: 'local' | 'cloud';
+  fallbackTriggered: boolean;
+  fallbackReason?: 'local_unhealthy' | 'local_connection_failed' | 'local_timeout' | 'local_submission_error';
+  localInstanceId?: string;
+}
+```
+
+### GenerationResult
+
+Result from `submitWorkflow`:
+
+```typescript
+interface GenerationResult {
+  promptId: string;
+  outputs?: unknown;
+  usage: ProviderUsageMetadata;
+}
+```
+
+### GenerationStatus
+
+Status from `getStatus`:
+
+```typescript
+interface GenerationStatus {
+  promptId: string;
+  state: 'queued' | 'running' | 'completed' | 'failed';
+  progress?: number;
+  outputs?: unknown;
+  error?: string;
+  usage?: ProviderUsageMetadata;
+}
+```
+
+### JobResult
+
+Extended result from `submit` and `submitAndWait`:
 
 ```typescript
 interface JobResult {
   jobId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  providerModeRequested: 'local' | 'cloud' | 'auto';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  providerModeRequested: ComfyRoutingMode;
   providerUsed: 'local' | 'cloud';
   fallbackTriggered: boolean;
-  fallbackReason?: 'local_unhealthy' | 'local_connection_failed' | 'local_timeout' | 'local_submission_error';
+  fallbackReason?: FallbackReason;
   localInstanceId?: string;
   progress?: JobProgress;
   outputs?: JobOutput[];
@@ -218,7 +310,7 @@ const state = bridge.getUISwitcherState();
 // {
 //   mode: 'auto',
 //   fallbackEnabled: true,
-//   preferredLocalUrl: 'http://127.0.0.1:8188'
+//   preferredLocalUrl: 'http://192.168.1.100:8188'
 // }
 ```
 
@@ -245,6 +337,7 @@ const runtimeInfo = await bridge.getUISwitcherRuntimeInfo();
 | Fallback toggle     | "Fallback to Cloud"                        |
 | Retry toggle        | "Retry on Connection Failure"              |
 | Instance selector   | "Preferred Local Instance"                 |
+| Timeout input       | "Local Timeout (ms)"                       |
 
 ### Runtime Display
 
@@ -289,7 +382,7 @@ type ErrorCode =
 import { createComfyBridge, isComfyBridgeError } from '@wandgx/comfy-bridge';
 
 try {
-  const result = await bridge.submit({ workflow });
+  const result = await bridge.submitWorkflow({ workflow });
 } catch (error) {
   if (isComfyBridgeError(error)) {
     console.log(`Error [${error.code}]: ${error.message}`);
@@ -308,12 +401,13 @@ import { createComfyBridge } from '@wandgx/comfy-bridge';
 
 const bridge = createComfyBridge({
   mode: 'auto',
-  local: { baseUrl: process.env.COMFY_LOCAL_URL },
+  fallbackToCloud: true,
+  retryOnConnectionFailure: true,
+  localTimeoutMs: 60000,
+  localInstances: [
+    { id: 'main', name: 'Main GPU', baseUrl: process.env.COMFY_LOCAL_URL! },
+  ],
   cloud: { apiKey: process.env.COMFY_CLOUD_API_KEY },
-  routing: {
-    enableFallback: true,
-    retryOnConnectionFailure: true,
-  },
 });
 
 // In your API handler
@@ -345,11 +439,11 @@ interface GenerationState {
 }
 
 // Update UI based on job result
-function updateUI(result: JobResult) {
+function updateUI(result: GenerationResult) {
   setState({
-    providerUsed: result.providerUsed,
-    statusBadge: result.fallbackTriggered ? 'fallback' : 'healthy',
-    fallbackReason: result.fallbackReason,
+    providerUsed: result.usage.providerUsed,
+    statusBadge: result.usage.fallbackTriggered ? 'fallback' : 'healthy',
+    fallbackReason: result.usage.fallbackReason,
   });
 }
 ```
@@ -366,19 +460,15 @@ describe('Local Mode', () => {
   it('connects to healthy local instance', async () => {
     const bridge = createComfyBridge({
       mode: 'local',
-      local: { baseUrl: 'http://127.0.0.1:8188' },
+      fallbackToCloud: false,
+      retryOnConnectionFailure: false,
+      localTimeoutMs: 60000,
+      localInstances: [
+        { id: 'local-1', name: 'Local', baseUrl: 'http://127.0.0.1:8188' },
+      ],
     });
     const health = await bridge.healthCheck();
     expect(health[0].healthy).toBe(true);
-  });
-
-  it('fails clearly when local is unreachable', async () => {
-    const bridge = createComfyBridge({
-      mode: 'local',
-      local: { baseUrl: 'http://nonexistent:8188' },
-    });
-    const health = await bridge.healthCheck();
-    expect(health[0].healthy).toBe(false);
   });
 });
 ```
@@ -390,24 +480,17 @@ describe('Auto Mode Fallback', () => {
   it('uses local when healthy', async () => {
     const bridge = createComfyBridge({
       mode: 'auto',
-      local: { baseUrl: 'http://127.0.0.1:8188' },
+      fallbackToCloud: true,
+      retryOnConnectionFailure: true,
+      localTimeoutMs: 60000,
+      localInstances: [
+        { id: 'local-1', name: 'Local', baseUrl: 'http://127.0.0.1:8188' },
+      ],
       cloud: { apiKey: 'test-key' },
     });
-    const result = await bridge.submit({ workflow: {} });
-    expect(result.providerUsed).toBe('local');
-    expect(result.fallbackTriggered).toBe(false);
-  });
-
-  it('falls back to cloud when local unhealthy', async () => {
-    const bridge = createComfyBridge({
-      mode: 'auto',
-      local: { baseUrl: 'http://nonexistent:8188' },
-      cloud: { apiKey: 'test-key' },
-      routing: { enableFallback: true },
-    });
-    const result = await bridge.submit({ workflow: {} });
-    expect(result.providerUsed).toBe('cloud');
-    expect(result.fallbackTriggered).toBe(true);
+    const result = await bridge.submitWorkflow({ workflow: {} });
+    expect(result.usage.providerUsed).toBe('local');
+    expect(result.usage.fallbackTriggered).toBe(false);
   });
 });
 ```
@@ -420,15 +503,18 @@ describe('Auto Mode Fallback', () => {
 - [x] Cloud provider support
 - [x] Auto mode with local-first
 - [x] Cloud fallback
+- [x] Preferred local instance selection
 - [x] Health checks
 - [x] Progress watching
 - [x] Output retrieval
 - [x] Normalized errors
 - [x] UI switcher helpers
+- [x] GUI-friendly flat config types
+- [x] Provider usage metadata
 
 ### Future
 
-- [ ] Multi-local instance support
+- [ ] Multi-local instance load balancing
 - [ ] Advanced scheduling
 - [ ] Billing integration hooks
 - [ ] Multi-region routing
@@ -444,6 +530,7 @@ For AI coding agents working with this codebase:
 3. **Do not** mix WandGx business logic into the bridge
 4. **Keep** the bridge transport-focused
 5. **Update** docs when public contract changes
+6. **Use** the doc-specified types: `ComfyBridgeConfig`, `ProviderUsageMetadata`, `GenerationResult`
 
 ## Not This Package's Job
 

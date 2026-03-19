@@ -1,12 +1,105 @@
 /**
  * Provider modes supported by the Comfy Bridge
+ * Doc: 04-PUBLIC-TYPES-SPEC.md
  */
-export type ProviderMode = 'local' | 'cloud' | 'auto';
+export type ComfyRoutingMode = 'local' | 'cloud' | 'auto';
+
+// Alias for backwards compatibility
+export type ProviderMode = ComfyRoutingMode;
 
 /**
- * Job status values
+ * Local instance configuration for multi-instance support
  */
-export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export interface LocalInstanceConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  enabled?: boolean;
+}
+
+/**
+ * Bridge configuration - GUI-friendly flat structure
+ * Doc: 04-PUBLIC-TYPES-SPEC.md
+ */
+export interface ComfyBridgeConfig {
+  mode: ComfyRoutingMode;
+  preferredLocalInstanceId?: string;
+  fallbackToCloud: boolean;
+  retryOnConnectionFailure: boolean;
+  localTimeoutMs: number;
+  localInstances?: LocalInstanceConfig[];
+  cloud?: {
+    baseUrl?: string;
+    apiKey?: string;
+  };
+}
+
+// Alias for internal use
+export type BridgeConfig = ComfyBridgeConfig;
+
+/**
+ * Provider usage metadata - returned with every generation result
+ * Doc: 04-PUBLIC-TYPES-SPEC.md
+ */
+export interface ProviderUsageMetadata {
+  providerRequested: ComfyRoutingMode;
+  providerUsed: 'local' | 'cloud';
+  fallbackTriggered: boolean;
+  fallbackReason?: string;
+  localInstanceId?: string;
+}
+
+/**
+ * File input for workflow submission
+ */
+export interface WorkflowFileInput {
+  name: string;
+  data: Uint8Array | ArrayBuffer | Blob;
+  contentType?: string;
+}
+
+/**
+ * Input for submitting a workflow
+ * Doc: 04-PUBLIC-TYPES-SPEC.md
+ */
+export interface SubmitWorkflowInput {
+  workflow: Record<string, unknown>;
+  files?: WorkflowFileInput[];
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Result from a generation request
+ * Doc: 04-PUBLIC-TYPES-SPEC.md
+ */
+export interface GenerationResult {
+  promptId: string;
+  outputs?: unknown;
+  usage: ProviderUsageMetadata;
+}
+
+/**
+ * Status of a generation job
+ * Doc: 04-PUBLIC-TYPES-SPEC.md
+ */
+export interface GenerationStatus {
+  promptId: string;
+  state: 'queued' | 'running' | 'completed' | 'failed';
+  progress?: number;
+  outputs?: unknown;
+  error?: string;
+  usage?: ProviderUsageMetadata;
+}
+
+// ============================================================================
+// Additional types for internal adapter interface
+// ============================================================================
+
+/**
+ * Job status values (extended)
+ */
+export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 /**
  * Normalized error codes
@@ -35,66 +128,29 @@ export type FallbackReason =
   | 'local_submission_error';
 
 /**
- * Local provider configuration
+ * Legacy local config (for single-instance backwards compat)
  */
 export interface LocalConfig {
-  /** Base URL of the local ComfyUI instance */
   baseUrl: string;
-  /** Timeout in milliseconds for requests */
   timeout?: number;
-  /** WebSocket path (default: /ws) */
   wsPath?: string;
 }
 
 /**
- * Cloud provider configuration
+ * Legacy cloud config
  */
 export interface CloudConfig {
-  /** Base URL of the ComfyUI Cloud API */
   baseUrl?: string;
-  /** API key for authentication */
   apiKey: string;
-  /** Timeout in milliseconds for requests */
   timeout?: number;
 }
 
 /**
- * Routing policy configuration
- */
-export interface RoutingPolicy {
-  /** Enable fallback to cloud when local fails */
-  enableFallback?: boolean;
-  /** Enable retry on connection failure */
-  retryOnConnectionFailure?: boolean;
-  /** Maximum retries before giving up */
-  maxRetries?: number;
-  /** Connection timeout in milliseconds */
-  connectionTimeout?: number;
-}
-
-/**
- * Bridge configuration
- */
-export interface BridgeConfig {
-  /** Provider mode: local, cloud, or auto */
-  mode: ProviderMode;
-  /** Local provider configuration */
-  local?: LocalConfig;
-  /** Cloud provider configuration */
-  cloud?: CloudConfig;
-  /** Routing policy for auto mode */
-  routing?: RoutingPolicy;
-}
-
-/**
- * Workflow to submit
+ * Workflow to submit (extended format)
  */
 export interface Workflow {
-  /** The workflow JSON (ComfyUI API format) */
   workflow: Record<string, unknown>;
-  /** Optional images to upload */
   images?: WorkflowImage[];
-  /** Optional files to upload */
   files?: WorkflowFile[];
 }
 
@@ -102,13 +158,9 @@ export interface Workflow {
  * Image to upload with the workflow
  */
 export interface WorkflowImage {
-  /** Image data as ArrayBuffer, Blob, or base64 string */
-  data: ArrayBuffer | Blob | string;
-  /** Original filename */
+  data: ArrayBuffer | Blob | string | Uint8Array;
   filename: string;
-  /** Subfolder path in ComfyUI input directory */
   subfolder?: string;
-  /** Whether to overwrite existing file */
   overwrite?: boolean;
 }
 
@@ -116,13 +168,9 @@ export interface WorkflowImage {
  * File to upload with the workflow
  */
 export interface WorkflowFile {
-  /** File data as ArrayBuffer, Blob, or base64 string */
-  data: ArrayBuffer | Blob | string;
-  /** Original filename */
+  data: ArrayBuffer | Blob | string | Uint8Array;
   filename: string;
-  /** Subfolder path in ComfyUI input directory */
   subfolder?: string;
-  /** Whether to overwrite existing file */
   overwrite?: boolean;
 }
 
@@ -130,15 +178,10 @@ export interface WorkflowFile {
  * Progress information for a running job
  */
 export interface JobProgress {
-  /** Current node being executed */
   currentNode?: string;
-  /** Number of completed steps */
   stepsCompleted?: number;
-  /** Total number of steps */
   totalSteps?: number;
-  /** Progress percentage (0-100) */
   progress?: number;
-  /** Preview image (base64 or URL) */
   preview?: string;
 }
 
@@ -146,43 +189,27 @@ export interface JobProgress {
  * Output from a completed job
  */
 export interface JobOutput {
-  /** Output filename */
   filename: string;
-  /** Subfolder path */
   subfolder?: string;
-  /** Output type */
   type: 'output' | 'temp';
-  /** URL to retrieve the output */
   url: string;
-  /** MIME type if known */
   mimeType?: string;
-  /** File size in bytes if known */
   size?: number;
 }
 
 /**
- * Job metadata and result
+ * Job result (extended)
  */
 export interface JobResult {
-  /** Unique job ID */
   jobId: string;
-  /** Current status */
   status: JobStatus;
-  /** Provider mode that was requested */
-  providerModeRequested: ProviderMode;
-  /** Provider that was actually used */
+  providerModeRequested: ComfyRoutingMode;
   providerUsed: 'local' | 'cloud';
-  /** Whether fallback was triggered */
   fallbackTriggered: boolean;
-  /** Reason for fallback if applicable */
   fallbackReason?: FallbackReason;
-  /** Local instance ID if local was used */
   localInstanceId?: string;
-  /** Progress information */
   progress?: JobProgress;
-  /** Outputs from completed job */
   outputs?: JobOutput[];
-  /** Error if job failed */
   error?: ComfyBridgeError;
 }
 
@@ -190,15 +217,10 @@ export interface JobResult {
  * Health check result
  */
 export interface HealthCheckResult {
-  /** Whether the provider is healthy */
   healthy: boolean;
-  /** Provider that was checked */
   provider: 'local' | 'cloud';
-  /** Response time in milliseconds */
   responseTime?: number;
-  /** Error if unhealthy */
   error?: string;
-  /** Additional metadata */
   metadata?: Record<string, unknown>;
 }
 
@@ -206,15 +228,10 @@ export interface HealthCheckResult {
  * Normalized error
  */
 export interface ComfyBridgeError {
-  /** Error code */
   code: ErrorCode;
-  /** Human-readable message */
   message: string;
-  /** Original error if available */
   cause?: Error;
-  /** Provider where the error occurred */
   provider?: 'local' | 'cloud';
-  /** Additional context */
   context?: Record<string, unknown>;
 }
 
@@ -222,11 +239,8 @@ export interface ComfyBridgeError {
  * Options for submit operation
  */
 export interface SubmitOptions {
-  /** Override provider mode for this job */
-  mode?: ProviderMode;
-  /** Custom timeout for this job */
+  mode?: ComfyRoutingMode;
   timeout?: number;
-  /** Callback for progress updates */
   onProgress?: (progress: JobProgress) => void;
 }
 
@@ -234,13 +248,9 @@ export interface SubmitOptions {
  * UI Switcher state payload
  */
 export interface UISwitcherState {
-  /** Current provider mode */
-  mode: ProviderMode;
-  /** Whether fallback is enabled */
+  mode: ComfyRoutingMode;
   fallbackEnabled: boolean;
-  /** Preferred local instance URL */
   preferredLocalUrl?: string;
-  /** Last health check result */
   lastHealthCheck?: HealthCheckResult;
 }
 
@@ -248,13 +258,9 @@ export interface UISwitcherState {
  * UI Switcher runtime info
  */
 export interface UISwitcherRuntimeInfo {
-  /** Provider actually being used */
   providerUsed: 'local' | 'cloud';
-  /** Current status badge */
   statusBadge: 'healthy' | 'degraded' | 'unavailable' | 'fallback';
-  /** Fallback reason if in fallback mode */
   fallbackReason?: FallbackReason;
-  /** Last checked timestamp */
   lastChecked: Date;
 }
 
@@ -262,33 +268,13 @@ export interface UISwitcherRuntimeInfo {
  * Provider adapter interface
  */
 export interface ProviderAdapter {
-  /** Provider identifier */
   readonly provider: 'local' | 'cloud';
-
-  /** Check if provider is healthy */
   healthCheck(): Promise<HealthCheckResult>;
-
-  /** Submit a workflow */
   submit(workflow: Workflow, options?: SubmitOptions): Promise<string>;
-
-  /** Watch job progress */
-  watchProgress(
-    jobId: string,
-    onProgress: (progress: JobProgress) => void
-  ): Promise<void>;
-
-  /** Get job status and result */
+  watchProgress(jobId: string, onProgress: (progress: JobProgress) => void): Promise<void>;
   getResult(jobId: string): Promise<JobResult>;
-
-  /** Cancel a job */
   cancel(jobId: string): Promise<void>;
-
-  /** Upload an image */
   uploadImage(image: WorkflowImage): Promise<{ filename: string; subfolder?: string }>;
-
-  /** Upload a file */
   uploadFile(file: WorkflowFile): Promise<{ filename: string; subfolder?: string }>;
-
-  /** Get output URL */
   getOutputUrl(output: JobOutput): string;
 }

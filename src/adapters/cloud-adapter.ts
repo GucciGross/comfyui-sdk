@@ -26,8 +26,8 @@ export class CloudAdapter implements ProviderAdapter {
 
   constructor(config: CloudConfig) {
     this.baseUrl = config.baseUrl?.replace(/\/$/, '') ?? DEFAULT_BASE_URL;
-    this.apiKey = config.apiKey;
-    this.timeout = config.timeout ?? DEFAULT_TIMEOUT;
+    this.apiKey = config.apiKey ?? '';
+    this.timeout = DEFAULT_TIMEOUT;
   }
 
   private getHeaders(): Record<string, string> {
@@ -68,7 +68,7 @@ export class CloudAdapter implements ProviderAdapter {
         };
       }
 
-      const data = await response.json() as { version?: string; region?: string };
+      const data = (await response.json()) as { version?: string; region?: string };
 
       return {
         healthy: true,
@@ -131,7 +131,7 @@ export class CloudAdapter implements ProviderAdapter {
         });
       }
 
-      const result = await response.json() as { id: string };
+      const result = (await response.json()) as { id: string };
       return result.id;
     } catch (error) {
       if (error instanceof TypeError && error.message.includes('fetch')) {
@@ -144,10 +144,7 @@ export class CloudAdapter implements ProviderAdapter {
     }
   }
 
-  async watchProgress(
-    jobId: string,
-    onProgress: (progress: JobProgress) => void
-  ): Promise<void> {
+  async watchProgress(jobId: string, onProgress: (progress: JobProgress) => void): Promise<void> {
     const pollInterval = 1000;
     const startTime = Date.now();
 
@@ -166,7 +163,7 @@ export class CloudAdapter implements ProviderAdapter {
           continue; // Retry on transient errors
         }
 
-        const data = await response.json() as {
+        const data = (await response.json()) as {
           status?: string;
           progress?: {
             current_node?: string;
@@ -177,7 +174,11 @@ export class CloudAdapter implements ProviderAdapter {
           };
         };
 
-        if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+        if (
+          data.status === 'completed' ||
+          data.status === 'failed' ||
+          data.status === 'cancelled'
+        ) {
           return;
         }
 
@@ -224,7 +225,7 @@ export class CloudAdapter implements ProviderAdapter {
         };
       }
 
-      const data = await response.json() as {
+      const data = (await response.json()) as {
         status?: string;
         outputs?: Array<{
           filename: string;
@@ -237,7 +238,8 @@ export class CloudAdapter implements ProviderAdapter {
       };
 
       const statusMap: Record<string, JobResult['status']> = {
-        pending: 'pending',
+        pending: 'queued',
+        queued: 'queued',
         running: 'running',
         completed: 'completed',
         failed: 'failed',
@@ -302,9 +304,7 @@ export class CloudAdapter implements ProviderAdapter {
     }
   }
 
-  async uploadImage(
-    image: WorkflowImage
-  ): Promise<{ filename: string; subfolder?: string }> {
+  async uploadImage(image: WorkflowImage): Promise<{ filename: string; subfolder?: string }> {
     try {
       const formData = new FormData();
       let blob: Blob;
@@ -312,6 +312,8 @@ export class CloudAdapter implements ProviderAdapter {
       if (image.data instanceof Blob) {
         blob = image.data;
       } else if (image.data instanceof ArrayBuffer) {
+        blob = new Blob([image.data]);
+      } else if (image.data instanceof Uint8Array) {
         blob = new Blob([image.data]);
       } else {
         // Base64 string
@@ -341,7 +343,7 @@ export class CloudAdapter implements ProviderAdapter {
         });
       }
 
-      const result = await response.json() as { filename: string; subfolder?: string };
+      const result = (await response.json()) as { filename: string; subfolder?: string };
       return {
         filename: result.filename,
         subfolder: result.subfolder,
@@ -351,9 +353,7 @@ export class CloudAdapter implements ProviderAdapter {
     }
   }
 
-  async uploadFile(
-    file: WorkflowFile
-  ): Promise<{ filename: string; subfolder?: string }> {
+  async uploadFile(file: WorkflowFile): Promise<{ filename: string; subfolder?: string }> {
     // Cloud adapter uses same upload endpoint for all files
     return this.uploadImage(file as WorkflowImage);
   }

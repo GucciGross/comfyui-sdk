@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ComfyBridge, createComfyBridge } from '../src/router';
-import type { BridgeConfig, HealthCheckResult } from '../src/types';
+import type { ComfyBridgeConfig, HealthCheckResult } from '../src/types';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -16,28 +16,46 @@ describe('ComfyBridge Router', () => {
   });
 
   describe('Configuration Validation', () => {
-    it('throws error for local mode without local config', () => {
+    it('throws error for local mode without localInstances config', () => {
       expect(() => {
-        createComfyBridge({ mode: 'local' });
-      }).toThrow('Local mode requires local configuration');
+        createComfyBridge({
+          mode: 'local',
+          fallbackToCloud: false,
+          retryOnConnectionFailure: false,
+          localTimeoutMs: 60000,
+        });
+      }).toThrow('Local mode requires localInstances configuration');
     });
 
     it('throws error for cloud mode without cloud config', () => {
       expect(() => {
-        createComfyBridge({ mode: 'cloud' });
+        createComfyBridge({
+          mode: 'cloud',
+          fallbackToCloud: false,
+          retryOnConnectionFailure: false,
+          localTimeoutMs: 60000,
+        });
       }).toThrow('Cloud mode requires cloud configuration');
     });
 
     it('throws error for auto mode without any config', () => {
       expect(() => {
-        createComfyBridge({ mode: 'auto' });
-      }).toThrow('Auto mode requires at least local or cloud configuration');
+        createComfyBridge({
+          mode: 'auto',
+          fallbackToCloud: false,
+          retryOnConnectionFailure: false,
+          localTimeoutMs: 60000,
+        });
+      }).toThrow('Auto mode requires at least localInstances or cloud configuration');
     });
 
     it('creates bridge with valid local config', () => {
       const bridge = createComfyBridge({
         mode: 'local',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
       });
       expect(bridge).toBeInstanceOf(ComfyBridge);
     });
@@ -45,6 +63,9 @@ describe('ComfyBridge Router', () => {
     it('creates bridge with valid cloud config', () => {
       const bridge = createComfyBridge({
         mode: 'cloud',
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
         cloud: { apiKey: 'test-key' },
       });
       expect(bridge).toBeInstanceOf(ComfyBridge);
@@ -53,7 +74,10 @@ describe('ComfyBridge Router', () => {
     it('creates bridge with valid auto config (local only)', () => {
       const bridge = createComfyBridge({
         mode: 'auto',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
       });
       expect(bridge).toBeInstanceOf(ComfyBridge);
     });
@@ -61,6 +85,25 @@ describe('ComfyBridge Router', () => {
     it('creates bridge with valid auto config (cloud only)', () => {
       const bridge = createComfyBridge({
         mode: 'auto',
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
+        cloud: { apiKey: 'test-key' },
+      });
+      expect(bridge).toBeInstanceOf(ComfyBridge);
+    });
+
+    it('supports preferredLocalInstanceId', () => {
+      const bridge = createComfyBridge({
+        mode: 'auto',
+        fallbackToCloud: true,
+        retryOnConnectionFailure: true,
+        localTimeoutMs: 30000,
+        preferredLocalInstanceId: 'local-2',
+        localInstances: [
+          { id: 'local-1', name: 'Local 1', baseUrl: 'http://localhost:8188' },
+          { id: 'local-2', name: 'Local 2', baseUrl: 'http://localhost:8189' },
+        ],
         cloud: { apiKey: 'test-key' },
       });
       expect(bridge).toBeInstanceOf(ComfyBridge);
@@ -73,7 +116,10 @@ describe('ComfyBridge Router', () => {
     beforeEach(() => {
       bridge = createComfyBridge({
         mode: 'local',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
       });
     });
 
@@ -119,6 +165,9 @@ describe('ComfyBridge Router', () => {
     beforeEach(() => {
       bridge = createComfyBridge({
         mode: 'cloud',
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
         cloud: { apiKey: 'test-key' },
       });
     });
@@ -156,9 +205,11 @@ describe('ComfyBridge Router', () => {
     beforeEach(() => {
       bridge = createComfyBridge({
         mode: 'auto',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: true,
+        retryOnConnectionFailure: true,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
         cloud: { apiKey: 'test-key' },
-        routing: { enableFallback: true },
       });
     });
 
@@ -188,9 +239,11 @@ describe('ComfyBridge Router', () => {
     beforeEach(() => {
       bridge = createComfyBridge({
         mode: 'auto',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: true,
+        retryOnConnectionFailure: true,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
         cloud: { apiKey: 'test-key' },
-        routing: { enableFallback: true, retryOnConnectionFailure: true },
       });
     });
 
@@ -237,9 +290,11 @@ describe('ComfyBridge Router', () => {
     it('fails when both providers fail and fallback is disabled', async () => {
       const noFallbackBridge = createComfyBridge({
         mode: 'auto',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
         cloud: { apiKey: 'test-key' },
-        routing: { enableFallback: false },
       });
 
       // Local health check fails
@@ -253,6 +308,9 @@ describe('ComfyBridge Router', () => {
     it('uses cloud when only cloud is configured', async () => {
       const bridge = createComfyBridge({
         mode: 'auto',
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
         cloud: { apiKey: 'test-key' },
       });
 
@@ -268,13 +326,50 @@ describe('ComfyBridge Router', () => {
     });
   });
 
+  describe('Preferred Local Instance Selection', () => {
+    it('uses preferred instance when specified', async () => {
+      const bridge = createComfyBridge({
+        mode: 'auto',
+        fallbackToCloud: true,
+        retryOnConnectionFailure: true,
+        localTimeoutMs: 60000,
+        preferredLocalInstanceId: 'local-2',
+        localInstances: [
+          { id: 'local-1', name: 'Local 1', baseUrl: 'http://localhost:8188' },
+          { id: 'local-2', name: 'Local 2', baseUrl: 'http://localhost:8189' },
+        ],
+        cloud: { apiKey: 'test-key' },
+      });
+
+      // Health check for local-2
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ system: {}, devices: [] }),
+      });
+
+      // Submit to local-2
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ prompt_id: 'job-123' }),
+      });
+
+      const result = await bridge.submit({ workflow: { test: 'workflow' } });
+
+      expect(result.providerUsed).toBe('local');
+      expect(result.localInstanceId).toBe('local-2');
+    });
+  });
+
   describe('UI Switcher Integration', () => {
     it('returns UI switcher state', () => {
       const bridge = createComfyBridge({
         mode: 'auto',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: true,
+        retryOnConnectionFailure: true,
+        localTimeoutMs: 60000,
+        preferredLocalInstanceId: 'local-1',
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
         cloud: { apiKey: 'test-key' },
-        routing: { enableFallback: true },
       });
 
       const state = bridge.getUISwitcherState();
@@ -287,7 +382,10 @@ describe('ComfyBridge Router', () => {
     it('returns runtime info for healthy local', async () => {
       const bridge = createComfyBridge({
         mode: 'auto',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: true,
+        retryOnConnectionFailure: true,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
         cloud: { apiKey: 'test-key' },
       });
 
@@ -313,7 +411,10 @@ describe('ComfyBridge Router', () => {
     it('returns runtime info with fallback status', async () => {
       const bridge = createComfyBridge({
         mode: 'auto',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: true,
+        retryOnConnectionFailure: true,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
         cloud: { apiKey: 'test-key' },
       });
 
@@ -338,27 +439,44 @@ describe('ComfyBridge Router', () => {
     it('returns copy of config', () => {
       const bridge = createComfyBridge({
         mode: 'local',
-        local: { baseUrl: 'http://localhost:8188' },
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
       });
 
       const config = bridge.getConfig();
 
       expect(config.mode).toBe('local');
-      expect(config.local?.baseUrl).toBe('http://localhost:8188');
+      expect(config.fallbackToCloud).toBe(false);
+      expect(config.localInstances?.[0]?.baseUrl).toBe('http://localhost:8188');
     });
+  });
 
-    it('returns copy of routing policy', () => {
+  describe('Doc-specified API (submitWorkflow)', () => {
+    it('submits workflow using doc-specified input format', async () => {
       const bridge = createComfyBridge({
-        mode: 'auto',
-        local: { baseUrl: 'http://localhost:8188' },
-        cloud: { apiKey: 'test-key' },
-        routing: { enableFallback: false, maxRetries: 3 },
+        mode: 'local',
+        fallbackToCloud: false,
+        retryOnConnectionFailure: false,
+        localTimeoutMs: 60000,
+        localInstances: [{ id: 'local-1', name: 'Local', baseUrl: 'http://localhost:8188' }],
       });
 
-      const policy = bridge.getRoutingPolicy();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ prompt_id: 'job-123' }),
+      });
 
-      expect(policy.enableFallback).toBe(false);
-      expect(policy.maxRetries).toBe(3);
+      const result = await bridge.submitWorkflow({
+        workflow: { '3': { class_type: 'KSampler' } },
+        metadata: { userId: 'user-1' },
+      });
+
+      expect(result.promptId).toBe('job-123');
+      expect(result.usage.providerRequested).toBe('local');
+      expect(result.usage.providerUsed).toBe('local');
+      expect(result.usage.fallbackTriggered).toBe(false);
     });
   });
 });

@@ -13,7 +13,19 @@ export {
   normalizeError,
 } from './errors';
 
-// Types
+// Types - Doc-specified public types
+export type {
+  ComfyRoutingMode,
+  ComfyBridgeConfig,
+  LocalInstanceConfig,
+  ProviderUsageMetadata,
+  SubmitWorkflowInput,
+  GenerationResult,
+  GenerationStatus,
+  WorkflowFileInput,
+} from './types';
+
+// Types - Extended types
 export type {
   ProviderMode,
   JobStatus,
@@ -21,8 +33,6 @@ export type {
   FallbackReason,
   LocalConfig,
   CloudConfig,
-  RoutingPolicy,
-  BridgeConfig,
   Workflow,
   WorkflowImage,
   WorkflowFile,
@@ -35,4 +45,5 @@ export type {
   UISwitcherState,
   UISwitcherRuntimeInfo,
   ProviderAdapter,
+  BridgeConfig,
 } from './types';

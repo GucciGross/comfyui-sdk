@@ -13,7 +13,6 @@ import type {
 import { createError, normalizeError } from '../errors';
 
 const DEFAULT_TIMEOUT = 60000;
-const DEFAULT_WS_PATH = '/ws';
 
 /**
  * Local ComfyUI provider adapter
@@ -27,7 +26,7 @@ export class LocalAdapter implements ProviderAdapter {
   constructor(config: LocalConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.timeout = config.timeout ?? DEFAULT_TIMEOUT;
-    this.wsPath = config.wsPath ?? DEFAULT_WS_PATH;
+    this.wsPath = '/ws';
   }
 
   async healthCheck(): Promise<HealthCheckResult> {
@@ -52,7 +51,7 @@ export class LocalAdapter implements ProviderAdapter {
         };
       }
 
-      const data = await response.json() as { system?: unknown; devices?: unknown };
+      const data = (await response.json()) as { system?: unknown; devices?: unknown };
 
       return {
         healthy: true,
@@ -107,29 +106,29 @@ export class LocalAdapter implements ProviderAdapter {
         });
       }
 
-      const result = await response.json() as { prompt_id: string };
+      const result = (await response.json()) as { prompt_id: string };
       return result.prompt_id;
     } catch (error) {
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw createError('CONNECTION_ERROR', `Cannot connect to local ComfyUI at ${this.baseUrl}`, {
-          provider: 'local',
-          cause: error instanceof Error ? error : undefined,
-        });
+        throw createError(
+          'CONNECTION_ERROR',
+          `Cannot connect to local ComfyUI at ${this.baseUrl}`,
+          {
+            provider: 'local',
+            cause: error instanceof Error ? error : undefined,
+          }
+        );
       }
       throw normalizeError(error, 'local');
     }
   }
 
-  async watchProgress(
-    jobId: string,
-    onProgress: (progress: JobProgress) => void
-  ): Promise<void> {
+  async watchProgress(jobId: string, onProgress: (progress: JobProgress) => void): Promise<void> {
     return new Promise((resolve, reject) => {
       const wsUrl = this.baseUrl.replace(/^http/, 'ws') + this.wsPath;
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        // Subscribe to job updates
         ws.send(JSON.stringify({ type: 'subscribe', id: jobId }));
       };
 
@@ -139,7 +138,6 @@ export class LocalAdapter implements ProviderAdapter {
 
           if (data.type === 'executing' && data.data?.prompt_id === jobId) {
             if (data.data.node === null) {
-              // Execution complete
               ws.close();
               resolve();
             } else {
@@ -154,7 +152,6 @@ export class LocalAdapter implements ProviderAdapter {
                 : undefined,
             });
           } else if (data.type === 'executed' && data.data?.prompt_id === jobId) {
-            // Output ready
             ws.close();
             resolve();
           }
@@ -164,9 +161,7 @@ export class LocalAdapter implements ProviderAdapter {
       };
 
       ws.onerror = () => {
-        reject(
-          createError('WEBSOCKET_ERROR', 'WebSocket connection error', { provider: 'local' })
-        );
+        reject(createError('WEBSOCKET_ERROR', 'WebSocket connection error', { provider: 'local' }));
       };
 
       ws.onclose = (event) => {
@@ -179,7 +174,6 @@ export class LocalAdapter implements ProviderAdapter {
         }
       };
 
-      // Timeout after the configured timeout
       setTimeout(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.close();
@@ -208,16 +202,22 @@ export class LocalAdapter implements ProviderAdapter {
         };
       }
 
-      const history = await response.json() as Record<string, {
-        outputs?: Record<string, { images?: Array<{ filename: string; subfolder?: string; type?: 'output' | 'temp' }> }>;
-        status?: { completed?: boolean; status_str?: string };
-      }>;
+      const history = (await response.json()) as Record<
+        string,
+        {
+          outputs?: Record<
+            string,
+            { images?: Array<{ filename: string; subfolder?: string; type?: 'output' | 'temp' }> }
+          >;
+          status?: { completed?: boolean; status_str?: string };
+        }
+      >;
       const jobHistory = history[jobId];
 
       if (!jobHistory) {
         return {
           jobId,
-          status: 'pending',
+          status: 'queued',
           providerModeRequested: 'local',
           providerUsed: 'local',
           fallbackTriggered: false,
@@ -290,9 +290,7 @@ export class LocalAdapter implements ProviderAdapter {
     }
   }
 
-  async uploadImage(
-    image: WorkflowImage
-  ): Promise<{ filename: string; subfolder?: string }> {
+  async uploadImage(image: WorkflowImage): Promise<{ filename: string; subfolder?: string }> {
     try {
       const formData = new FormData();
       let blob: Blob;
@@ -300,6 +298,8 @@ export class LocalAdapter implements ProviderAdapter {
       if (image.data instanceof Blob) {
         blob = image.data;
       } else if (image.data instanceof ArrayBuffer) {
+        blob = new Blob([image.data]);
+      } else if (image.data instanceof Uint8Array) {
         blob = new Blob([image.data]);
       } else {
         // Base64 string
@@ -332,7 +332,7 @@ export class LocalAdapter implements ProviderAdapter {
         });
       }
 
-      const result = await response.json() as { name: string; subfolder?: string };
+      const result = (await response.json()) as { name: string; subfolder?: string };
       return {
         filename: result.name,
         subfolder: result.subfolder,
@@ -342,9 +342,7 @@ export class LocalAdapter implements ProviderAdapter {
     }
   }
 
-  async uploadFile(
-    file: WorkflowFile
-  ): Promise<{ filename: string; subfolder?: string }> {
+  async uploadFile(file: WorkflowFile): Promise<{ filename: string; subfolder?: string }> {
     try {
       const formData = new FormData();
       let blob: Blob;
@@ -352,6 +350,8 @@ export class LocalAdapter implements ProviderAdapter {
       if (file.data instanceof Blob) {
         blob = file.data;
       } else if (file.data instanceof ArrayBuffer) {
+        blob = new Blob([file.data]);
+      } else if (file.data instanceof Uint8Array) {
         blob = new Blob([file.data]);
       } else {
         // Base64 string
@@ -384,7 +384,7 @@ export class LocalAdapter implements ProviderAdapter {
         });
       }
 
-      const result = await response.json() as { name: string; subfolder?: string };
+      const result = (await response.json()) as { name: string; subfolder?: string };
       return {
         filename: result.name,
         subfolder: result.subfolder,
