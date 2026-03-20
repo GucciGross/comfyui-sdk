@@ -116,7 +116,12 @@ export type ErrorCode =
   | 'NO_PROVIDER_AVAILABLE'
   | 'INVALID_WORKFLOW'
   | 'UPLOAD_ERROR'
-  | 'CONNECTION_ERROR';
+  | 'CONNECTION_ERROR'
+  | 'TIMEOUT_ERROR'
+  | 'JOB_NOT_FOUND'
+  | 'INVALID_RESPONSE'
+  | 'CANCEL_ERROR'
+  | 'EXECUTION_ERROR';
 
 /**
  * Fallback reason when cloud is used instead of local
@@ -132,6 +137,7 @@ export type FallbackReason =
  */
 export interface LocalConfig {
   baseUrl: string;
+  instanceId?: string;
   timeout?: number;
   wsPath?: string;
 }
@@ -160,6 +166,7 @@ export interface Workflow {
 export interface WorkflowImage {
   data: ArrayBuffer | Blob | string | Uint8Array;
   filename: string;
+  contentType?: string;
   subfolder?: string;
   overwrite?: boolean;
 }
@@ -170,6 +177,7 @@ export interface WorkflowImage {
 export interface WorkflowFile {
   data: ArrayBuffer | Blob | string | Uint8Array;
   filename: string;
+  contentType?: string;
   subfolder?: string;
   overwrite?: boolean;
 }
@@ -219,6 +227,7 @@ export interface JobResult {
 export interface HealthCheckResult {
   healthy: boolean;
   provider: 'local' | 'cloud';
+  instanceId?: string;
   responseTime?: number;
   error?: string;
   metadata?: Record<string, unknown>;
@@ -274,7 +283,7 @@ export interface ProviderAdapter {
   watchProgress(jobId: string, onProgress: (progress: JobProgress) => void): Promise<void>;
   getResult(jobId: string): Promise<JobResult>;
   cancel(jobId: string): Promise<void>;
-  uploadImage(image: WorkflowImage): Promise<{ filename: string; subfolder?: string }>;
-  uploadFile(file: WorkflowFile): Promise<{ filename: string; subfolder?: string }>;
+  uploadImage(image: WorkflowImage): Promise<{ filename: string; subfolder?: string; type?: string }>;
+  uploadFile(file: WorkflowFile): Promise<{ filename: string; subfolder?: string; type?: string }>;
   getOutputUrl(output: JobOutput): string;
 }

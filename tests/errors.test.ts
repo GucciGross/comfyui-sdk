@@ -52,7 +52,7 @@ describe('Error Handling', () => {
     });
 
     it('returns true for ComfyBridgeErrorClass instance', () => {
-      const error = new ComfyBridgeErrorClass('TIMEOUT', 'Timed out');
+      const error = new ComfyBridgeErrorClass('TIMEOUT_ERROR', 'Timed out');
       expect(isComfyBridgeError(error)).toBe(true);
     });
 
@@ -98,7 +98,7 @@ describe('Error Handling', () => {
       const error = new Error('Request timeout exceeded');
       const normalized = normalizeError(error, 'cloud');
 
-      expect(normalized.code).toBe('POLLING_TIMEOUT');
+      expect(normalized.code).toBe('TIMEOUT_ERROR');
     });
 
     it('normalizes auth errors', () => {
@@ -120,6 +120,30 @@ describe('Error Handling', () => {
 
       expect(normalized.code).toBe('SUBMISSION_ERROR');
       expect(normalized.message).toBe('string error');
+    });
+
+    it('merges context into an existing ComfyBridgeError', () => {
+      const original = createError('AUTH_ERROR', 'Auth failed', {
+        provider: 'cloud',
+        context: { status: 401 },
+      });
+
+      const normalized = normalizeError(original, 'cloud', {
+        context: { operation: 'submit' },
+      });
+
+      expect(normalized.context).toEqual({
+        status: 401,
+        operation: 'submit',
+      });
+    });
+
+    it('uses the provided default code for generic errors', () => {
+      const normalized = normalizeError(new Error('Upload exploded'), 'cloud', {
+        defaultCode: 'UPLOAD_ERROR',
+      });
+
+      expect(normalized.code).toBe('UPLOAD_ERROR');
     });
   });
 });

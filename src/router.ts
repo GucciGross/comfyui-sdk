@@ -94,6 +94,7 @@ export class ComfyBridge {
     if (!adapter) {
       adapter = new LocalAdapter({
         baseUrl: instance.baseUrl,
+        instanceId: instance.id,
         timeout: this.config.localTimeoutMs ?? DEFAULT_LOCAL_TIMEOUT_MS,
       });
       this.localAdapters.set(instance.id, adapter);
@@ -118,8 +119,13 @@ export class ComfyBridge {
   /**
    * Get the instance ID that would be used
    */
-  private resolveLocalInstanceId(): string | undefined {
+  private resolveLocalInstanceId(requestedInstanceId?: string): string | undefined {
     const instances = this.config.localInstances ?? [];
+
+    if (requestedInstanceId) {
+      const explicit = instances.find((i) => i.id === requestedInstanceId);
+      if (explicit) return explicit.id;
+    }
 
     if (this.config.preferredLocalInstanceId) {
       const preferred = instances.find(
@@ -186,6 +192,7 @@ export class ComfyBridge {
       if (this.config.fallbackToCloud && this.config.cloud) {
         return {
           adapter: this.getCloudAdapter(),
+          instanceId,
           fallbackTriggered: true,
           fallbackReason: 'local_unhealthy',
         };
@@ -199,6 +206,89 @@ export class ComfyBridge {
     }
 
     throw createError('NO_PROVIDER_AVAILABLE', `Unknown mode: ${effectiveMode}`);
+  }
+
+  private getLocalFallbackReason(
+    error: unknown,
+    effectiveMode: ComfyRoutingMode,
+    routing: RoutingDecision
+  ): FallbackReason | undefined {
+    if (effectiveMode !== 'auto' || routing.adapter.provider !== 'local' || !this.config.cloud) {
+      return undefined;
+    }
+
+    if (!isComfyBridgeError(error)) {
+      return undefined;
+    }
+
+    if (error.code === 'CONNECTION_ERROR' && this.config.retryOnConnectionFailure) {
+      return 'local_connection_failed';
+    }
+
+    if (error.code === 'TIMEOUT_ERROR' && this.config.fallbackToCloud) {
+      return 'local_timeout';
+    }
+
+    return undefined;
+  }
+
+  private async submitWithRouting(
+    workflow: Workflow,
+    options?: SubmitOptions
+  ): Promise<{
+    jobId: string;
+    providerModeRequested: ComfyRoutingMode;
+    providerUsed: 'local' | 'cloud';
+    fallbackTriggered: boolean;
+    fallbackReason?: FallbackReason;
+    localInstanceId?: string;
+  }> {
+    const routing = await this.resolveProvider(options?.mode);
+    const effectiveMode = options?.mode ?? this.config.mode;
+
+    try {
+      const jobId = await routing.adapter.submit(workflow, options);
+
+      return {
+        jobId,
+        providerModeRequested: effectiveMode,
+        providerUsed: routing.adapter.provider,
+        fallbackTriggered: routing.fallbackTriggered,
+        fallbackReason: routing.fallbackReason,
+        localInstanceId: routing.instanceId,
+      };
+    } catch (error) {
+      const fallbackReason = this.getLocalFallbackReason(error, effectiveMode, routing);
+
+      if (fallbackReason) {
+        try {
+          const jobId = await this.getCloudAdapter().submit(workflow, options);
+
+          return {
+            jobId,
+            providerModeRequested: effectiveMode,
+            providerUsed: 'cloud',
+            fallbackTriggered: true,
+            fallbackReason,
+            localInstanceId: routing.instanceId,
+          };
+        } catch (cloudError) {
+          throw normalizeError(cloudError, 'cloud', {
+            context: {
+              attemptedFallbackFrom: 'local',
+              localInstanceId: routing.instanceId,
+            },
+          });
+        }
+      }
+
+      throw normalizeError(error, routing.adapter.provider, {
+        context: {
+          requestedMode: effectiveMode,
+          localInstanceId: routing.instanceId,
+        },
+      });
+    }
   }
 
   /**
@@ -226,111 +316,46 @@ export class ComfyBridge {
    * Submit a workflow for execution using the doc-specified input format
    */
   async submitWorkflow(input: SubmitWorkflowInput, options?: SubmitOptions): Promise<GenerationResult> {
-    const routing = await this.resolveProvider(options?.mode);
-    const effectiveMode = options?.mode ?? this.config.mode;
-
     const workflow: Workflow = {
       workflow: input.workflow,
       files: input.files?.map(
         (f): WorkflowFile => ({
           data: f.data,
           filename: f.name,
+          contentType: f.contentType,
         })
       ),
     };
 
-    try {
-      const promptId = await routing.adapter.submit(workflow, options);
+    const result = await this.submitWithRouting(workflow, options);
 
-      return {
-        promptId,
-        usage: {
-          providerRequested: effectiveMode,
-          providerUsed: routing.adapter.provider,
-          fallbackTriggered: routing.fallbackTriggered,
-          fallbackReason: routing.fallbackReason,
-          localInstanceId: routing.instanceId,
-        },
-      };
-    } catch (error) {
-      // Check if we should retry on connection failure
-      if (
-        this.config.retryOnConnectionFailure &&
-        !routing.fallbackTriggered &&
-        effectiveMode === 'auto' &&
-        this.config.cloud &&
-        isComfyBridgeError(error) &&
-        error.code === 'CONNECTION_ERROR'
-      ) {
-        try {
-          const cloudAdapter = this.getCloudAdapter();
-          const promptId = await cloudAdapter.submit(workflow, options);
-
-          return {
-            promptId,
-            usage: {
-              providerRequested: effectiveMode,
-              providerUsed: 'cloud',
-              fallbackTriggered: true,
-              fallbackReason: 'local_connection_failed',
-            },
-          };
-        } catch (cloudError) {
-          throw normalizeError(cloudError, 'cloud');
-        }
-      }
-
-      throw normalizeError(error, routing.adapter.provider);
-    }
+    return {
+      promptId: result.jobId,
+      usage: {
+        providerRequested: result.providerModeRequested,
+        providerUsed: result.providerUsed,
+        fallbackTriggered: result.fallbackTriggered,
+        fallbackReason: result.fallbackReason,
+        localInstanceId: result.localInstanceId,
+      },
+    };
   }
 
   /**
    * Submit a workflow (extended format with images/files)
    */
   async submit(workflow: Workflow, options?: SubmitOptions): Promise<JobResult> {
-    const routing = await this.resolveProvider(options?.mode);
-    const effectiveMode = options?.mode ?? this.config.mode;
+    const result = await this.submitWithRouting(workflow, options);
 
-    try {
-      const jobId = await routing.adapter.submit(workflow, options);
-
-      return {
-        jobId,
-        status: 'queued',
-        providerModeRequested: effectiveMode,
-        providerUsed: routing.adapter.provider,
-        fallbackTriggered: routing.fallbackTriggered,
-        fallbackReason: routing.fallbackReason,
-        localInstanceId: routing.instanceId,
-      };
-    } catch (error) {
-      if (
-        this.config.retryOnConnectionFailure &&
-        !routing.fallbackTriggered &&
-        effectiveMode === 'auto' &&
-        this.config.cloud &&
-        isComfyBridgeError(error) &&
-        error.code === 'CONNECTION_ERROR'
-      ) {
-        try {
-          const cloudAdapter = this.getCloudAdapter();
-          const jobId = await cloudAdapter.submit(workflow, options);
-
-          return {
-            jobId,
-            status: 'queued',
-            providerModeRequested: effectiveMode,
-            providerUsed: 'cloud',
-            fallbackTriggered: true,
-            fallbackReason: 'local_connection_failed',
-          };
-        } catch (cloudError) {
-          throw normalizeError(cloudError, 'cloud');
-        }
-      }
-
-      throw normalizeError(error, routing.adapter.provider);
-    }
+    return {
+      jobId: result.jobId,
+      status: 'queued',
+      providerModeRequested: result.providerModeRequested,
+      providerUsed: result.providerUsed,
+      fallbackTriggered: result.fallbackTriggered,
+      fallbackReason: result.fallbackReason,
+      localInstanceId: result.localInstanceId,
+    };
   }
 
   /**
@@ -366,7 +391,8 @@ export class ComfyBridge {
    * Get the status of a generation
    */
   async getStatus(promptId: string, provider: 'local' | 'cloud', instanceId?: string): Promise<GenerationStatus> {
-    const adapter = provider === 'local' ? this.getLocalAdapter(instanceId) : this.getCloudAdapter();
+    const resolvedInstanceId = provider === 'local' ? this.resolveLocalInstanceId(instanceId) : undefined;
+    const adapter = provider === 'local' ? this.getLocalAdapter(resolvedInstanceId) : this.getCloudAdapter();
     const result = await adapter.getResult(promptId);
 
     const stateMap: Record<string, GenerationStatus['state']> = {
@@ -385,10 +411,10 @@ export class ComfyBridge {
       outputs: result.outputs,
       error: result.error?.message,
       usage: {
-        providerRequested: this.config.mode,
+        providerRequested: provider,
         providerUsed: provider,
         fallbackTriggered: false,
-        localInstanceId: instanceId,
+        localInstanceId: resolvedInstanceId,
       },
     };
   }
@@ -410,8 +436,18 @@ export class ComfyBridge {
    * Get the result of a job
    */
   async getResult(jobId: string, provider: 'local' | 'cloud', instanceId?: string): Promise<JobResult> {
-    const adapter = provider === 'local' ? this.getLocalAdapter(instanceId) : this.getCloudAdapter();
-    return adapter.getResult(jobId);
+    const resolvedInstanceId = provider === 'local' ? this.resolveLocalInstanceId(instanceId) : undefined;
+    const adapter = provider === 'local' ? this.getLocalAdapter(resolvedInstanceId) : this.getCloudAdapter();
+    const result = await adapter.getResult(jobId);
+
+    return {
+      ...result,
+      providerModeRequested: provider,
+      providerUsed: provider,
+      fallbackTriggered: false,
+      fallbackReason: undefined,
+      localInstanceId: resolvedInstanceId,
+    };
   }
 
   /**
@@ -429,7 +465,7 @@ export class ComfyBridge {
     image: import('./types').WorkflowImage,
     provider?: 'local' | 'cloud',
     instanceId?: string
-  ): Promise<{ filename: string; subfolder?: string }> {
+  ): Promise<{ filename: string; subfolder?: string; type?: string }> {
     if (provider === 'cloud') {
       return this.getCloudAdapter().uploadImage(image);
     }
@@ -443,7 +479,7 @@ export class ComfyBridge {
     file: import('./types').WorkflowFile,
     provider?: 'local' | 'cloud',
     instanceId?: string
-  ): Promise<{ filename: string; subfolder?: string }> {
+  ): Promise<{ filename: string; subfolder?: string; type?: string }> {
     if (provider === 'cloud') {
       return this.getCloudAdapter().uploadFile(file);
     }
@@ -484,7 +520,10 @@ export class ComfyBridge {
    */
   async getUISwitcherRuntimeInfo(): Promise<UISwitcherRuntimeInfo> {
     const healthResults = await this.healthCheck();
-    const localHealth = healthResults.find((h) => h.provider === 'local');
+    const resolvedLocalInstanceId = this.resolveLocalInstanceId();
+    const localHealth = healthResults.find(
+      (h) => h.provider === 'local' && h.instanceId === resolvedLocalInstanceId
+    );
     const cloudHealth = healthResults.find((h) => h.provider === 'cloud');
 
     let providerUsed: 'local' | 'cloud';

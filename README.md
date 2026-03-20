@@ -1,358 +1,353 @@
 # @wandgx/comfy-bridge
 
-A standalone TypeScript bridge layer for connecting to both ComfyUI Local and ComfyUI Cloud with automatic fallback support.
+`@wandgx/comfy-bridge` is a standalone TypeScript router/adaptor layer for submitting ComfyUI workflows to:
 
-## Overview
+- local ComfyUI instances
+- ComfyUI Cloud
 
-This package provides a clean, typed abstraction over ComfyUI providers. It enables applications to seamlessly switch between local and cloud ComfyUI instances with automatic fallback behavior.
+It keeps provider-specific transport details behind a stable package API and returns routing metadata that UI layers can surface directly.
 
-**Why this exists separately from WandGx:**
+## Scope
 
-- Keeps provider-specific transport logic out of the main application
-- Makes integration easier to reuse, test, and evolve independently
-- Provides a stable interface that hides API differences, auth differences, websocket differences, and queue behaviors
-- Enables future cloud changes without affecting application code
+This package is intentionally transport-focused.
+
+It does:
+
+- choose between `local`, `cloud`, and `auto` modes
+- prefer a selected local instance when one is configured
+- perform local-first routing in `auto`
+- fall back to cloud for specific local failures when allowed
+- normalize uploads, results, and errors across providers
+- expose GUI-friendly metadata about which provider was actually used
+
+It does not:
+
+- generate workflows for you
+- manage billing, projects, or WandGx business logic
+- orchestrate load balancing or advanced scheduling
+- guarantee identical semantics across every ComfyUI server build
+
+## Runtime requirements
+
+- Node `>=18`
 
 ## Installation
 
 ```bash
 npm install @wandgx/comfy-bridge
-# or
-pnpm add @wandgx/comfy-bridge
-# or
-yarn add @wandgx/comfy-bridge
 ```
 
-## Supported Provider Modes
+## Current confidence level
 
-| Mode    | Description                                      |
-| ------- | ------------------------------------------------ |
-| `local` | Use local ComfyUI only. Fail if unavailable.     |
-| `cloud` | Use ComfyUI Cloud only.                          |
-| `auto`  | Prefer local, fallback to cloud when configured. |
+This repo is designed to be a **production-leaning bridge package**, not a speculative demo.
 
-**Recommended default:** `auto`
+The implementation and tests in this repo currently verify:
 
-## Auto Mode & Fallback Behavior
+- local-first routing and cloud fallback rules
+- stable `providerRequested` / `providerUsed` / `fallbackTriggered` / `fallbackReason` metadata
+- local instance tracking through `localInstanceId`
+- upload-to-workflow rewriting before submission
+- normalized output parsing for local history and cloud job results
+- normalized error classification for connection, auth, timeout, upload, cancel, and execution failures
+- local progress via websocket with polling fallback
+- cloud progress via polling, with websocket treated as best-effort
 
-When `auto` mode is selected:
+What is still intentionally bounded is listed in [Known limitations](#known-limitations).
 
-1. Try preferred local instance first
-2. If local fails preflight (health check), switch to cloud (if `fallbackToCloud` is true)
-3. If local fails with connection-level failure during submission, retry on cloud (if `retryOnConnectionFailure` is true)
-4. Record the fallback reason for observability
+## Verified provider contract
 
-Fallback is a **routing policy**, not a hidden behavior. The caller always receives metadata showing when and why fallback occurred.
+### Local ComfyUI
 
-## Quick Start
+This package currently relies on these local endpoints/behaviors:
 
-```typescript
-import { createComfyBridge } from '@wandgx/comfy-bridge';
+- `GET /system_stats`
+- `POST /prompt`
+- `GET /history/:prompt_id`
+- `POST /upload/image`
+- `GET /view`
+- `GET /ws?clientId=...`
 
-// Create bridge with auto mode
-const bridge = createComfyBridge({
-  mode: 'auto',
-  fallbackToCloud: true,
-  retryOnConnectionFailure: true,
-  localTimeoutMs: 60000,
-  localInstances: [
-    { id: 'local-1', name: 'Main', baseUrl: 'http://127.0.0.1:8188' },
-  ],
-  cloud: {
-    apiKey: 'your-api-key',
-  },
-});
+Important local behavior in this package:
 
-// Submit a workflow using doc-specified format
-const result = await bridge.submitWorkflow({
-  workflow: {
-    // Your ComfyUI workflow JSON
-    '3': {
-      class_type: 'KSampler',
-      inputs: { /* ... */ },
-    },
-  },
-});
+- submissions include a generated `client_id`
+- websocket progress does **not** send an undocumented subscribe message
+- if websocket progress fails, the adapter falls back to polling `history`
+- file uploads are routed through `/upload/image` with `type=input` rather than relying on `/upload/file`
 
-console.log(`Job ${result.promptId} submitted`);
-console.log(`Provider used: ${result.usage.providerUsed}`);
-console.log(`Fallback triggered: ${result.usage.fallbackTriggered}`);
-```
+### ComfyUI Cloud
+
+This package now targets the documented Comfy Cloud base URL and auth shape:
+
+- base URL: `https://cloud.comfy.org`
+- auth header: `X-API-Key`
+
+This package currently uses these cloud endpoints:
+
+- `GET /api/queue` for health/auth reachability
+- `POST /api/prompt`
+- `GET /api/job/:id/status`
+- `GET /api/jobs/:id`
+- `POST /api/upload/image`
+- `GET /api/view`
+- `POST /api/queue` for queued-job deletion
+
+## Provider modes
+
+| Mode | Behavior |
+| --- | --- |
+| `local` | Use local only. Fail if a usable local instance is not configured. |
+| `cloud` | Use cloud only. Fail if cloud is not configured or auth fails. |
+| `auto` | Prefer local, then fall back to cloud only when configured and allowed. |
+
+## Routing and fallback behavior
+
+### `local`
+
+- no cloud preflight
+- no fallback
+- `localInstanceId` is the resolved local instance id
+
+### `cloud`
+
+- no local preflight
+- no fallback
+- `localInstanceId` is `undefined`
+
+### `auto`
+
+The router does this:
+
+1. resolve the preferred enabled local instance
+2. health-check that local instance
+3. use local if healthy
+4. otherwise fall back to cloud only if `fallbackToCloud` is enabled and cloud is configured
+
+The router can also retry on cloud after local submission fails with a connection error when:
+
+- `mode` is `auto`
+- `retryOnConnectionFailure` is `true`
+- cloud is configured
+
+The currently emitted fallback reasons are:
+
+- `local_unhealthy`
+- `local_connection_failed`
+- `local_timeout`
+- `local_submission_error`
 
 ## Configuration
 
-### ComfyBridgeConfig
+```ts
+import { createComfyBridge } from '@wandgx/comfy-bridge';
 
-```typescript
-interface ComfyBridgeConfig {
-  mode: ComfyRoutingMode;
-  preferredLocalInstanceId?: string;
-  fallbackToCloud: boolean;
-  retryOnConnectionFailure: boolean;
-  localTimeoutMs: number;
-  localInstances?: LocalInstanceConfig[];
-  cloud?: {
-    baseUrl?: string;
-    apiKey?: string;
-  };
-}
-
-interface LocalInstanceConfig {
-  id: string;
-  name: string;
-  baseUrl: string;
-  apiKey?: string;
-  enabled?: boolean;
-}
-```
-
-### Example Configuration
-
-```typescript
 const bridge = createComfyBridge({
   mode: 'auto',
+  preferredLocalInstanceId: 'main-gpu',
   fallbackToCloud: true,
   retryOnConnectionFailure: true,
-  localTimeoutMs: 30000,
-  preferredLocalInstanceId: 'gpu-1',
+  localTimeoutMs: 60_000,
   localInstances: [
-    { id: 'gpu-1', name: 'RTX 4090', baseUrl: 'http://192.168.1.100:8188' },
-    { id: 'gpu-2', name: 'RTX 3080', baseUrl: 'http://192.168.1.101:8188' },
+    {
+      id: 'main-gpu',
+      name: 'Main GPU',
+      baseUrl: 'http://127.0.0.1:8188',
+    },
   ],
   cloud: {
-    baseUrl: 'https://api.comfyicloud.com',
     apiKey: process.env.COMFY_CLOUD_API_KEY,
   },
 });
 ```
 
-## API Reference
+### Notes
 
-### Main Methods
+- `cloud.baseUrl` is optional and defaults to `https://cloud.comfy.org`
+- keep your cloud API key in environment variables or other secure server-side config
+- the bridge does not inject secrets into frontend code for you
 
-#### `submitWorkflow(input, options?)`
+## Quick start
 
-Submit a workflow using the doc-specified input format.
+```ts
+import { createComfyBridge } from '@wandgx/comfy-bridge';
 
-```typescript
-const result = await bridge.submitWorkflow({
-  workflow: myWorkflow,
-  files: [
+const bridge = createComfyBridge({
+  mode: 'auto',
+  fallbackToCloud: true,
+  retryOnConnectionFailure: true,
+  localTimeoutMs: 60_000,
+  localInstances: [
+    { id: 'local-1', name: 'Local', baseUrl: 'http://127.0.0.1:8188' },
+  ],
+  cloud: {
+    apiKey: process.env.COMFY_CLOUD_API_KEY,
+  },
+});
+
+const submission = await bridge.submitWorkflow({
+  workflow: {
+    '3': {
+      class_type: 'KSampler',
+      inputs: {},
+    },
+  },
+});
+
+console.log(submission.promptId);
+console.log(submission.usage.providerUsed);
+console.log(submission.usage.fallbackTriggered);
+console.log(submission.usage.fallbackReason);
+```
+
+## Upload behavior
+
+Uploads are not cosmetic in this package.
+
+Before submission:
+
+- files and images are uploaded through the selected provider adapter
+- provider upload responses are normalized to `{ filename, subfolder?, type? }`
+- matching references inside the workflow JSON are rewritten before submit
+
+That means this package does **not** upload a file and then submit stale workflow references.
+
+## Progress behavior
+
+### Local
+
+- preferred path: websocket progress tied to the submit-time `client_id`
+- fallback path: polling `GET /history/:prompt_id`
+
+### Cloud
+
+- reliable path in this package: polling `GET /api/job/:id/status`
+- websocket support is attempted when a runtime `WebSocket` implementation exists, but polling remains the trusted fallback path
+
+## API overview
+
+### `submitWorkflow(input, options?)`
+
+Use this when you want the simpler public input shape.
+
+```ts
+const result = await bridge.submitWorkflow(
+  {
+    workflow,
+    files: [
+      {
+        name: 'input.png',
+        data: imageBlob,
+        contentType: 'image/png',
+      },
+    ],
+  },
+  {
+    mode: 'auto',
+  }
+);
+
+console.log(result.promptId);
+console.log(result.usage.providerUsed);
+```
+
+### `submit(workflow, options?)`
+
+Use this when you want explicit `images` and `files` arrays.
+
+```ts
+const result = await bridge.submit({
+  workflow,
+  images: [
     {
-      name: 'input.png',
+      filename: 'input.png',
       data: imageBlob,
       contentType: 'image/png',
     },
   ],
-  metadata: { userId: 'user-123' },
-}, {
-  mode: 'auto',
-  onProgress: (progress) => {
-    console.log(`Progress: ${progress.progress}%`);
-  },
 });
-
-// Result includes provider usage metadata
-console.log(result.usage.providerUsed);
-console.log(result.usage.fallbackTriggered);
-console.log(result.usage.fallbackReason);
 ```
 
-#### `submit(workflow, options?)`
+### `submitAndWait(workflow, options?)`
 
-Submit a workflow using the extended format (with images/files arrays).
-
-```typescript
-const result = await bridge.submit({
-  workflow: myWorkflow,
-  images: [
-    {
-      data: imageBlob,
-      filename: 'input.png',
-      subfolder: 'myimages',
+```ts
+const result = await bridge.submitAndWait(
+  { workflow },
+  {
+    onProgress(progress) {
+      console.log(progress.currentNode, progress.progress);
     },
-  ],
-});
-```
-
-#### `submitAndWait(workflow, options?)`
-
-Submit and wait for completion.
-
-```typescript
-const result = await bridge.submitAndWait({
-  workflow: myWorkflow,
-}, {
-  onProgress: (progress) => {
-    console.log(`Node: ${progress.currentNode}`);
-  },
-});
+  }
+);
 
 if (result.status === 'completed') {
-  console.log('Outputs:', result.outputs);
+  console.log(result.outputs);
 }
 ```
 
-#### `healthCheck()`
+### `getStatus(promptId, provider, instanceId?)`
 
-Check health of all configured providers.
-
-```typescript
-const healthResults = await bridge.healthCheck();
-// [{ healthy: true, provider: 'local', responseTime: 42 }, ...]
+```ts
+const status = await bridge.getStatus('job-123', 'local', 'local-1');
+console.log(status.state);
+console.log(status.usage?.localInstanceId);
 ```
 
-#### `getStatus(promptId, provider, instanceId?)`
+Important:
 
-Get the status of a generation job.
+- `getStatus` is stateless
+- pass the provider and local instance you actually used, usually from prior usage metadata
+- `GenerationStatus.state` does not have a `cancelled` variant, so cancelled jobs are surfaced as `failed` at this layer
 
-```typescript
-const status = await bridge.getStatus('job-123', 'local');
-// { promptId, state: 'running', progress: 50, outputs: undefined, error: undefined, usage: {...} }
+### `getResult(jobId, provider, instanceId?)`
+
+```ts
+const result = await bridge.getResult('job-123', 'cloud');
+console.log(result.status);
+console.log(result.outputs);
 ```
 
-#### `getResult(jobId, provider, instanceId?)`
+### `watchProgress(jobId, provider, onProgress, instanceId?)`
 
-Get the result of a submitted job.
-
-```typescript
-const result = await bridge.getResult('job-123', 'local');
-```
-
-#### `watchProgress(jobId, provider, onProgress, instanceId?)`
-
-Watch progress of an existing job.
-
-```typescript
+```ts
 await bridge.watchProgress('job-123', 'local', (progress) => {
-  console.log(`${progress.stepsCompleted}/${progress.totalSteps}`);
-});
+  console.log(progress.stepsCompleted, progress.totalSteps, progress.progress);
+}, 'local-1');
 ```
 
-#### `cancel(jobId, provider, instanceId?)`
+### `cancel(jobId, provider, instanceId?)`
 
-Cancel a running job.
-
-```typescript
-await bridge.cancel('job-123', 'local');
+```ts
+await bridge.cancel('job-123', 'local', 'local-1');
 ```
 
-## Types
+## Metadata returned to callers
 
-### ProviderUsageMetadata
+Every submission returns GUI-friendly usage data.
 
-Returned with every generation result to indicate routing decisions:
-
-```typescript
+```ts
 interface ProviderUsageMetadata {
-  providerRequested: ComfyRoutingMode;  // 'local' | 'cloud' | 'auto'
+  providerRequested: 'local' | 'cloud' | 'auto';
   providerUsed: 'local' | 'cloud';
   fallbackTriggered: boolean;
-  fallbackReason?: 'local_unhealthy' | 'local_connection_failed' | 'local_timeout' | 'local_submission_error';
+  fallbackReason?: string;
   localInstanceId?: string;
 }
 ```
 
-### GenerationResult
+Interpretation:
 
-Result from `submitWorkflow`:
+- `providerRequested`: what you asked the router to do
+- `providerUsed`: what actually ran the job
+- `fallbackTriggered`: whether cloud was used as a fallback rather than the initial route
+- `fallbackReason`: why that fallback happened
+- `localInstanceId`: the resolved local instance id, when local routing was involved
 
-```typescript
-interface GenerationResult {
-  promptId: string;
-  outputs?: unknown;
-  usage: ProviderUsageMetadata;
-}
-```
+For direct `getStatus()` / `getResult()` calls, the bridge uses the provider and local instance id you pass in rather than trying to reconstruct original submission routing.
 
-### GenerationStatus
+## Error model
 
-Status from `getStatus`:
+All thrown package errors are normalized into a `ComfyBridgeError` shape.
 
-```typescript
-interface GenerationStatus {
-  promptId: string;
-  state: 'queued' | 'running' | 'completed' | 'failed';
-  progress?: number;
-  outputs?: unknown;
-  error?: string;
-  usage?: ProviderUsageMetadata;
-}
-```
-
-### JobResult
-
-Extended result from `submit` and `submitAndWait`:
-
-```typescript
-interface JobResult {
-  jobId: string;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-  providerModeRequested: ComfyRoutingMode;
-  providerUsed: 'local' | 'cloud';
-  fallbackTriggered: boolean;
-  fallbackReason?: FallbackReason;
-  localInstanceId?: string;
-  progress?: JobProgress;
-  outputs?: JobOutput[];
-  error?: ComfyBridgeError;
-}
-```
-
-## UI Integration (Provider Switcher)
-
-The bridge provides helpers for building a provider switcher UI.
-
-### UI Switcher State
-
-```typescript
-const state = bridge.getUISwitcherState();
-// {
-//   mode: 'auto',
-//   fallbackEnabled: true,
-//   preferredLocalUrl: 'http://192.168.1.100:8188'
-// }
-```
-
-### UI Switcher Runtime Info
-
-```typescript
-const runtimeInfo = await bridge.getUISwitcherRuntimeInfo();
-// {
-//   providerUsed: 'local',
-//   statusBadge: 'healthy',
-//   fallbackReason: undefined,
-//   lastChecked: Date
-// }
-```
-
-### Recommended UI Labels
-
-| Control             | Label                                      |
-| ------------------- | ------------------------------------------ |
-| Primary selector    | "Render Provider"                          |
-| Local option        | "Local ComfyUI"                            |
-| Cloud option        | "ComfyUI Cloud"                            |
-| Auto option         | "Auto · Prefer Local, Fallback to Cloud"   |
-| Fallback toggle     | "Fallback to Cloud"                        |
-| Retry toggle        | "Retry on Connection Failure"              |
-| Instance selector   | "Preferred Local Instance"                 |
-| Timeout input       | "Local Timeout (ms)"                       |
-
-### Runtime Display
-
-Show these fields read-only:
-
-- Provider used
-- Status badge (healthy/degraded/unavailable/fallback)
-- Fallback reason (when applicable)
-- Last checked time
-
-## Error Handling
-
-All errors are normalized into a consistent format:
-
-```typescript
+```ts
 interface ComfyBridgeError {
   code: ErrorCode;
   message: string;
@@ -360,184 +355,99 @@ interface ComfyBridgeError {
   cause?: Error;
   context?: Record<string, unknown>;
 }
-
-type ErrorCode =
-  | 'NO_LOCAL_PROVIDER'
-  | 'LOCAL_UNHEALTHY'
-  | 'CLOUD_UNAVAILABLE'
-  | 'AUTH_ERROR'
-  | 'SUBMISSION_ERROR'
-  | 'WEBSOCKET_ERROR'
-  | 'POLLING_TIMEOUT'
-  | 'OUTPUT_PARSE_ERROR'
-  | 'NO_PROVIDER_AVAILABLE'
-  | 'INVALID_WORKFLOW'
-  | 'UPLOAD_ERROR'
-  | 'CONNECTION_ERROR';
 ```
 
-### Error Handling Example
+Common error codes include:
 
-```typescript
-import { createComfyBridge, isComfyBridgeError } from '@wandgx/comfy-bridge';
+- `NO_LOCAL_PROVIDER`
+- `LOCAL_UNHEALTHY`
+- `CLOUD_UNAVAILABLE`
+- `AUTH_ERROR`
+- `CONNECTION_ERROR`
+- `TIMEOUT_ERROR`
+- `INVALID_WORKFLOW`
+- `UPLOAD_ERROR`
+- `JOB_NOT_FOUND`
+- `CANCEL_ERROR`
+- `EXECUTION_ERROR`
+- `INVALID_RESPONSE`
+
+Example:
+
+```ts
+import { isComfyBridgeError } from '@wandgx/comfy-bridge';
 
 try {
-  const result = await bridge.submitWorkflow({ workflow });
+  await bridge.submitWorkflow({ workflow });
 } catch (error) {
   if (isComfyBridgeError(error)) {
-    console.log(`Error [${error.code}]: ${error.message}`);
-    console.log(`Provider: ${error.provider}`);
+    console.error(error.code, error.provider, error.message, error.context);
   }
 }
 ```
 
-## Integration into WandGx
+## UI switcher helpers
 
-### Backend Integration
+This package exposes two small helpers intended for provider-switcher UIs.
 
-```typescript
-// In your WandGx backend/service
-import { createComfyBridge } from '@wandgx/comfy-bridge';
+### `getUISwitcherState()`
 
-const bridge = createComfyBridge({
-  mode: 'auto',
-  fallbackToCloud: true,
-  retryOnConnectionFailure: true,
-  localTimeoutMs: 60000,
-  localInstances: [
-    { id: 'main', name: 'Main GPU', baseUrl: process.env.COMFY_LOCAL_URL! },
-  ],
-  cloud: { apiKey: process.env.COMFY_CLOUD_API_KEY },
-});
+Returns configuration-facing state:
 
-// In your API handler
-async function handleGenerateRequest(req, res) {
-  const result = await bridge.submitAndWait({
-    workflow: req.body.workflow,
-  });
-
-  res.json({
-    jobId: result.jobId,
-    status: result.status,
-    providerUsed: result.providerUsed,
-    fallbackTriggered: result.fallbackTriggered,
-    outputs: result.outputs,
-  });
-}
+```ts
+const state = bridge.getUISwitcherState();
 ```
 
-### Frontend Integration
+Shape:
 
-```typescript
-// UI state from backend
-interface GenerationState {
-  mode: 'local' | 'cloud' | 'auto';
-  fallbackEnabled: boolean;
-  providerUsed?: 'local' | 'cloud';
-  statusBadge?: 'healthy' | 'degraded' | 'unavailable' | 'fallback';
-  fallbackReason?: string;
-}
+- `mode`
+- `fallbackEnabled`
+- `preferredLocalUrl`
 
-// Update UI based on job result
-function updateUI(result: GenerationResult) {
-  setState({
-    providerUsed: result.usage.providerUsed,
-    statusBadge: result.usage.fallbackTriggered ? 'fallback' : 'healthy',
-    fallbackReason: result.usage.fallbackReason,
-  });
-}
+### `getUISwitcherRuntimeInfo()`
+
+Returns runtime-facing status:
+
+```ts
+const runtime = await bridge.getUISwitcherRuntimeInfo();
 ```
 
-## Testing
+Shape:
 
-### Local Mode Tests
+- `providerUsed`
+- `statusBadge`
+- `fallbackReason`
+- `lastChecked`
 
-```typescript
-import { describe, it, expect } from 'vitest';
-import { createComfyBridge } from '@wandgx/comfy-bridge';
+## Known limitations
 
-describe('Local Mode', () => {
-  it('connects to healthy local instance', async () => {
-    const bridge = createComfyBridge({
-      mode: 'local',
-      fallbackToCloud: false,
-      retryOnConnectionFailure: false,
-      localTimeoutMs: 60000,
-      localInstances: [
-        { id: 'local-1', name: 'Local', baseUrl: 'http://127.0.0.1:8188' },
-      ],
-    });
-    const health = await bridge.healthCheck();
-    expect(health[0].healthy).toBe(true);
-  });
-});
+- cloud progress is trusted through status polling; websocket progress is best-effort
+- cloud running-job cancellation is intentionally **not** performed as a targeted interrupt because the documented cloud API exposes queue deletion for queued jobs, but not a documented per-job interrupt for in-progress execution
+- local queued-job cancellation uses the Comfy-compatible `/queue` deletion shape; exact behavior can still depend on the server build in front of you
+- this package does not preserve original submission routing automatically if you later call `getStatus()` or `getResult()` without the recorded provider metadata
+- output normalization covers common image/audio/video collections, not every possible custom node payload shape
+
+## Development
+
+```bash
+npm run typecheck
+npm test
+npm run build
 ```
 
-### Auto Mode Tests
+Current repository checks exercised during this hardening pass:
 
-```typescript
-describe('Auto Mode Fallback', () => {
-  it('uses local when healthy', async () => {
-    const bridge = createComfyBridge({
-      mode: 'auto',
-      fallbackToCloud: true,
-      retryOnConnectionFailure: true,
-      localTimeoutMs: 60000,
-      localInstances: [
-        { id: 'local-1', name: 'Local', baseUrl: 'http://127.0.0.1:8188' },
-      ],
-      cloud: { apiKey: 'test-key' },
-    });
-    const result = await bridge.submitWorkflow({ workflow: {} });
-    expect(result.usage.providerUsed).toBe('local');
-    expect(result.usage.fallbackTriggered).toBe(false);
-  });
-});
-```
+- `npm run typecheck`
+- `npm test`
 
-## Roadmap
-
-### MVP (Current)
-
-- [x] Local provider support
-- [x] Cloud provider support
-- [x] Auto mode with local-first
-- [x] Cloud fallback
-- [x] Preferred local instance selection
-- [x] Health checks
-- [x] Progress watching
-- [x] Output retrieval
-- [x] Normalized errors
-- [x] UI switcher helpers
-- [x] GUI-friendly flat config types
-- [x] Provider usage metadata
-
-### Future
-
-- [ ] Multi-local instance load balancing
-- [ ] Advanced scheduling
-- [ ] Billing integration hooks
-- [ ] Multi-region routing
-- [ ] Workflow templates
-- [ ] Caching layer
-
-## Agent Instructions
-
-For AI coding agents working with this codebase:
-
-1. **Do not** invent provider modes outside `local`, `cloud`, `auto`
-2. **Do not** bypass the routing layer
-3. **Do not** mix WandGx business logic into the bridge
-4. **Keep** the bridge transport-focused
-5. **Update** docs when public contract changes
-6. **Use** the doc-specified types: `ComfyBridgeConfig`, `ProviderUsageMetadata`, `GenerationResult`
-
-## Not This Package's Job
+## Out of scope
 
 - WandGx billing logic
-- WandGx project style profiles
-- WandGx game asset manifests
-- WandGx prompt builder business rules
+- WandGx project management logic
+- workflow authoring UX
+- template systems
+- multi-instance load balancing
+- advanced scheduler/orchestrator behavior
 
 ## License
 

@@ -187,7 +187,7 @@ describe('ComfyBridge Router', () => {
     it('submits workflow to cloud provider', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ id: 'cloud-job-456' }),
+        json: () => Promise.resolve({ prompt_id: 'cloud-job-456' }),
       });
 
       const result = await bridge.submit({ workflow: { test: 'workflow' } });
@@ -254,7 +254,7 @@ describe('ComfyBridge Router', () => {
       // Cloud submit succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ id: 'cloud-job-789' }),
+        json: () => Promise.resolve({ prompt_id: 'cloud-job-789' }),
       });
 
       const result = await bridge.submit({ workflow: { test: 'workflow' } });
@@ -262,6 +262,8 @@ describe('ComfyBridge Router', () => {
       expect(result.providerUsed).toBe('cloud');
       expect(result.fallbackTriggered).toBe(true);
       expect(result.fallbackReason).toBe('local_unhealthy');
+      expect(result.providerModeRequested).toBe('auto');
+      expect(result.localInstanceId).toBe('local-1');
     });
 
     it('falls back to cloud on connection failure during submission', async () => {
@@ -277,7 +279,7 @@ describe('ComfyBridge Router', () => {
       // Cloud submit succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ id: 'cloud-job-fallback' }),
+        json: () => Promise.resolve({ prompt_id: 'cloud-job-fallback' }),
       });
 
       const result = await bridge.submit({ workflow: { test: 'workflow' } });
@@ -285,6 +287,8 @@ describe('ComfyBridge Router', () => {
       expect(result.providerUsed).toBe('cloud');
       expect(result.fallbackTriggered).toBe(true);
       expect(result.fallbackReason).toBe('local_connection_failed');
+      expect(result.providerModeRequested).toBe('auto');
+      expect(result.localInstanceId).toBe('local-1');
     });
 
     it('fails when both providers fail and fallback is disabled', async () => {
@@ -316,7 +320,7 @@ describe('ComfyBridge Router', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ id: 'cloud-only-job' }),
+        json: () => Promise.resolve({ prompt_id: 'cloud-only-job' }),
       });
 
       const result = await bridge.submit({ workflow: { test: 'workflow' } });
@@ -357,6 +361,43 @@ describe('ComfyBridge Router', () => {
 
       expect(result.providerUsed).toBe('local');
       expect(result.localInstanceId).toBe('local-2');
+    });
+
+    it('uses the requested local instance for getStatus metadata', async () => {
+      const bridge = createComfyBridge({
+        mode: 'auto',
+        fallbackToCloud: true,
+        retryOnConnectionFailure: true,
+        localTimeoutMs: 60000,
+        localInstances: [
+          { id: 'local-1', name: 'Local 1', baseUrl: 'http://localhost:8188' },
+          { id: 'local-2', name: 'Local 2', baseUrl: 'http://localhost:8189' },
+        ],
+        cloud: { apiKey: 'test-key' },
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            'job-123': {
+              status: { completed: true },
+              outputs: {
+                '9': {
+                  images: [{ filename: 'result.png', subfolder: 'output', type: 'output' }],
+                },
+              },
+            },
+          }),
+      });
+
+      const status = await bridge.getStatus('job-123', 'local', 'local-2');
+
+      expect(status.state).toBe('completed');
+      expect(status.usage?.providerRequested).toBe('local');
+      expect(status.usage?.providerUsed).toBe('local');
+      expect(status.usage?.localInstanceId).toBe('local-2');
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('http://localhost:8189/history/job-123');
     });
   });
 
